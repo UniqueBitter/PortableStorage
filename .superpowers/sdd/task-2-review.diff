@@ -1,0 +1,92 @@
+### commits
+50439e1 feat: PinyinUtil 中文转全拼/首字母 (TDD)
+
+### stat
+ .../java/com/portablestorage/core/PinyinUtil.java  | 47 ++++++++++++++++++++++
+ .../com/portablestorage/core/PinyinUtilTest.java   | 24 +++++++++++
+ 2 files changed, 71 insertions(+)
+
+### diff
+diff --git a/src/main/java/com/portablestorage/core/PinyinUtil.java b/src/main/java/com/portablestorage/core/PinyinUtil.java
+new file mode 100644
+index 0000000..3508134
+--- /dev/null
++++ b/src/main/java/com/portablestorage/core/PinyinUtil.java
+@@ -0,0 +1,47 @@
++package com.portablestorage.core;
++
++import net.sourceforge.pinyin4j.PinyinHelper;
++import net.sourceforge.pinyin4j.format.HanyuPinyinCaseType;
++import net.sourceforge.pinyin4j.format.HanyuPinyinOutputFormat;
++import net.sourceforge.pinyin4j.format.HanyuPinyinToneType;
++import net.sourceforge.pinyin4j.format.exception.BadHanyuPinyinOutputFormatCombination;
++
++public final class PinyinUtil {
++
++    private PinyinUtil() {}
++
++    private static final HanyuPinyinOutputFormat FMT = new HanyuPinyinOutputFormat();
++
++    static {
++        FMT.setCaseType(HanyuPinyinCaseType.LOWERCASE);
++        FMT.setToneType(HanyuPinyinToneType.WITHOUT_TONE);
++    }
++
++    public static String fullPinyin(String text) {
++        return convert(text, false);
++    }
++
++    public static String initials(String text) {
++        return convert(text, true);
++    }
++
++    private static String convert(String text, boolean initialOnly) {
++        if (text == null) return "";
++        StringBuilder sb = new StringBuilder();
++        for (char c : text.toCharArray()) {
++            String py = pinyinOf(c);
++            if (py != null) sb.append(initialOnly ? py.substring(0, 1) : py);
++            else if (!Character.isWhitespace(c)) sb.append(Character.toLowerCase(c));
++        }
++        return sb.toString();
++    }
++
++    private static String pinyinOf(char c) {
++        if (c < 0x4E00 || c > 0x9FFF) return null;
++        try {
++            String[] arr = PinyinHelper.toHanyuPinyinStringArray(c, FMT);
++            if (arr != null && arr.length > 0) return arr[0];
++        } catch (BadHanyuPinyinOutputFormatCombination ignored) {}
++        return null;
++    }
++}
+diff --git a/src/test/java/com/portablestorage/core/PinyinUtilTest.java b/src/test/java/com/portablestorage/core/PinyinUtilTest.java
+new file mode 100644
+index 0000000..f701957
+--- /dev/null
++++ b/src/test/java/com/portablestorage/core/PinyinUtilTest.java
+@@ -0,0 +1,24 @@
++package com.portablestorage.core;
++
++import static org.junit.Assert.assertEquals;
++
++import org.junit.Test;
++
++public class PinyinUtilTest {
++
++    @Test
++    public void fullPinyinOfChinese() {
++        assertEquals("zuanshi", PinyinUtil.fullPinyin("钻石"));
++    }
++
++    @Test
++    public void initialsOfChinese() {
++        assertEquals("zs", PinyinUtil.initials("钻石"));
++    }
++
++    @Test
++    public void keepsAsciiLowercased() {
++        assertEquals("tnt", PinyinUtil.fullPinyin("TNT"));
++        assertEquals("tnt", PinyinUtil.initials("TNT"));
++    }
++}

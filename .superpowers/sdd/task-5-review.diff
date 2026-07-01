@@ -1,0 +1,184 @@
+### commits
+556156a feat: DAO 取出/搜索窗口/计数, 拼音匹配 (TDD)
+
+### diff
+diff --git a/src/main/java/com/portablestorage/db/StorageDao.java b/src/main/java/com/portablestorage/db/StorageDao.java
+index f2acb22..661e07a 100644
+--- a/src/main/java/com/portablestorage/db/StorageDao.java
++++ b/src/main/java/com/portablestorage/db/StorageDao.java
+@@ -75,11 +75,123 @@ public class StorageDao {
+         ps.setInt(3, it.getMeta());
+         if (it.getNbt() == null) ps.setNull(4, Types.BLOB);
+         else ps.setBytes(4, it.getNbt());
+         ps.setString(5, it.getNbtHash());
+         ps.setLong(6, it.getCount());
+         ps.setString(7, it.getName());
+         ps.setString(8, it.getLore());
+         ps.setString(9, it.getPinyin());
+         ps.setString(10, it.getPinyinInitials());
+     }
++
++    public long entryId(String player, String item, int meta, String nbtHash) {
++        String sql = "SELECT id FROM entries WHERE player=? AND item=? AND meta=? AND nbt_hash=?";
++        try (PreparedStatement ps = db.getConnection()
++            .prepareStatement(sql)) {
++            ps.setString(1, player);
++            ps.setString(2, item);
++            ps.setInt(3, meta);
++            ps.setString(4, nbtHash);
++            try (ResultSet rs = ps.executeQuery()) {
++                return rs.next() ? rs.getLong(1) : -1L;
++            }
++        } catch (SQLException e) {
++            throw new RuntimeException(e);
++        }
++    }
++
++    public long extract(String player, long id, long amount) {
++        try (PreparedStatement sel = db.getConnection()
++            .prepareStatement("SELECT count FROM entries WHERE player=? AND id=?")) {
++            sel.setString(1, player);
++            sel.setLong(2, id);
++            long have;
++            try (ResultSet rs = sel.executeQuery()) {
++                if (!rs.next()) return 0;
++                have = rs.getLong(1);
++            }
++            long take = Math.min(amount, have);
++            if (take <= 0) return 0;
++            if (take == have) {
++                try (PreparedStatement del = db.getConnection()
++                    .prepareStatement("DELETE FROM entries WHERE player=? AND id=?")) {
++                    del.setString(1, player);
++                    del.setLong(2, id);
++                    del.executeUpdate();
++                }
++            } else {
++                try (PreparedStatement upd = db.getConnection()
++                    .prepareStatement("UPDATE entries SET count=count-? WHERE player=? AND id=?")) {
++                    upd.setLong(1, take);
++                    upd.setString(2, player);
++                    upd.setLong(3, id);
++                    upd.executeUpdate();
++                }
++            }
++            return take;
++        } catch (SQLException e) {
++            throw new RuntimeException(e);
++        }
++    }
++
++    private String where(String keyword) {
++        return keyword == null || keyword.isEmpty() ? "player=?"
++            : "player=? AND (name LIKE ? OR lore LIKE ? OR pinyin LIKE ? OR pinyin_in LIKE ?)";
++    }
++
++    private int bindWhere(PreparedStatement ps, String player, String keyword) throws SQLException {
++        ps.setString(1, player);
++        if (keyword != null && !keyword.isEmpty()) {
++            String kw = "%" + keyword.toLowerCase() + "%";
++            ps.setString(2, kw);
++            ps.setString(3, kw);
++            ps.setString(4, kw);
++            ps.setString(5, kw);
++            return 6;
++        }
++        return 2;
++    }
++
++    public long countMatches(String player, String keyword) {
++        String sql = "SELECT COUNT(*) FROM entries WHERE " + where(keyword);
++        try (PreparedStatement ps = db.getConnection()
++            .prepareStatement(sql)) {
++            bindWhere(ps, player, keyword);
++            try (ResultSet rs = ps.executeQuery()) {
++                return rs.next() ? rs.getLong(1) : 0;
++            }
++        } catch (SQLException e) {
++            throw new RuntimeException(e);
++        }
++    }
++
++    public List<StoredItem> queryWindow(String player, String keyword, int offset, int limit) {
++        List<StoredItem> out = new java.util.ArrayList<StoredItem>();
++        String sql = "SELECT id,item,meta,nbt_hash,count,name,lore,pinyin,pinyin_in FROM entries WHERE "
++            + where(keyword)
++            + " ORDER BY name LIMIT ? OFFSET ?";
++        try (PreparedStatement ps = db.getConnection()
++            .prepareStatement(sql)) {
++            int idx = bindWhere(ps, player, keyword);
++            ps.setInt(idx, limit);
++            ps.setInt(idx + 1, offset);
++            try (ResultSet rs = ps.executeQuery()) {
++                while (rs.next()) {
++                    out.add(
++                        new StoredItem(
++                            rs.getString("item"),
++                            rs.getInt("meta"),
++                            null,
++                            rs.getString("nbt_hash"),
++                            rs.getLong("count"),
++                            rs.getString("name"),
++                            rs.getString("lore"),
++                            rs.getString("pinyin"),
++                            rs.getString("pinyin_in")));
++                }
++            }
++        } catch (SQLException e) {
++            throw new RuntimeException(e);
++        }
++        return out;
++    }
+ }
+diff --git a/src/test/java/com/portablestorage/db/StorageDaoTest.java b/src/test/java/com/portablestorage/db/StorageDaoTest.java
+index 759f976..7a33c35 100644
+--- a/src/test/java/com/portablestorage/db/StorageDaoTest.java
++++ b/src/test/java/com/portablestorage/db/StorageDaoTest.java
+@@ -46,11 +46,47 @@ public class StorageDaoTest {
+         dao.upsert("p1", new StoredItem("minecraft:sword", 0, new byte[] { 2 }, "bbb", 1, "剑", "", "jian", "j"));
+         assertEquals(1, dao.countOf("p1", "minecraft:sword", 0, "aaa"));
+         assertEquals(1, dao.countOf("p1", "minecraft:sword", 0, "bbb"));
+     }
+ 
+     @Test
+     public void batchInsert() {
+         dao.upsertBatch("p1", Arrays.asList(di(2), di(2), di(2)));
+         assertEquals(6, dao.countOf("p1", "minecraft:diamond", 0, "-"));
+     }
++
++    @Test
++    public void extractDecrementsAndDeletesAtZero() {
++        dao.upsert("p1", di(10));
++        long id = dao.entryId("p1", "minecraft:diamond", 0, "-");
++        assertEquals(4, dao.extract("p1", id, 4));
++        assertEquals(6, dao.countOf("p1", "minecraft:diamond", 0, "-"));
++        assertEquals(6, dao.extract("p1", id, 100));
++        assertEquals(0, dao.countOf("p1", "minecraft:diamond", 0, "-"));
++        assertEquals(-1, dao.entryId("p1", "minecraft:diamond", 0, "-"));
++    }
++
++    @Test
++    public void searchMatchesNameLorePinyin() {
++        dao.upsert("p1", new StoredItem("minecraft:diamond", 0, null, "-", 1, "钻石", "稀有 矿物", "zuanshi", "zs"));
++        assertEquals(1, dao.countMatches("p1", "钻"));
++        assertEquals(1, dao.countMatches("p1", "zuanshi"));
++        assertEquals(1, dao.countMatches("p1", "zs"));
++        assertEquals(1, dao.countMatches("p1", "矿物"));
++        assertEquals(0, dao.countMatches("p1", "apple"));
++    }
++
++    @Test
++    public void windowPaginates() {
++        for (int i = 0; i < 5; i++)
++            dao.upsert("p1", new StoredItem("mod:i" + i, 0, null, "-", 1, "物" + i, "", "wu", "w"));
++        assertEquals(5, dao.countMatches("p1", ""));
++        assertEquals(
++            2,
++            dao.queryWindow("p1", "", 0, 2)
++                .size());
++        assertEquals(
++            1,
++            dao.queryWindow("p1", "", 4, 2)
++                .size());
++    }
+ }

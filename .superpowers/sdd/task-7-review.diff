@@ -1,0 +1,130 @@
+### commits
+97c6eb3 feat: Config 磁铁半径 clamp 1-128 (TDD), 接入主类 preInit
+
+### diff
+diff --git a/.superpowers/sdd/task-7-report.md b/.superpowers/sdd/task-7-report.md
+new file mode 100644
+index 0000000..126258f
+--- /dev/null
++++ b/.superpowers/sdd/task-7-report.md
+@@ -0,0 +1,35 @@
++# Task 7 Report: Config 磁铁半径 clamp 1–128
++
++## Status
++COMPLETE
++
++## TDD Steps Executed
++1. Wrote failing `ConfigTest.java` — confirmed FAIL (compilation error: `clampRadius` not found in old Config)
++2. Replaced `Config.java` entirely with real implementation (`magnetRadius`, `clampRadius`, `load`)
++3. Updated `PortableStorageMod.preInit` to call `Config.load(...)` instead of `Config.synchronizeConfiguration(...)`
++4. Ran `spotlessApply` — BUILD SUCCESSFUL (reformatted multiline `c.getInt(...)` call)
++5. Ran `ConfigTest` — BUILD SUCCESSFUL, 1 test passed (clamps)
++6. Ran full `./gradlew build` — FAILED (checkstyle violations in pre-existing files)
++
++## ConfigTest Output
++```
++> Task :test
++BUILD SUCCESSFUL in 4s
++12 actionable tasks: 3 executed, 9 up-to-date
++```
++1 test, 1 passed, 0 failures.
++
++## Build Result (full build)
++BUILD FAILED — checkstyle violations in pre-existing files:
++- `src/main/java/com/portablestorage/db/StorageDao.java` line 3: `import java.sql.*`
++- `src/main/java/com/portablestorage/db/StorageDb.java` line 4: `import java.sql.*`
++- `src/test/java/com/portablestorage/db/StorageDaoTest.java` lines 2,6: `import java.util.*`, `import org.junit.*`
++
++**These violations existed BEFORE this task** (confirmed by stashing changes and running build on HEAD — same failure). Task 7 files introduce NO new checkstyle violations.
++
++## Commit
++See git log for commit hash.
++
++## Concerns
++- Pre-existing checkstyle violations in StorageDao/StorageDb/StorageDaoTest (from prior tasks) prevent `./gradlew build` from reaching BUILD SUCCESSFUL. These wildcard imports need to be fixed in those files to achieve a clean build. This task does not introduce the issue.
++- The `Config.load()` method uses Forge's `Configuration` class and cannot be unit-tested without Forge on the classpath — verified by compilation passing + in-game testing required for full confidence.
+diff --git a/src/main/java/com/portablestorage/Config.java b/src/main/java/com/portablestorage/Config.java
+index fffe774..5548a78 100644
+--- a/src/main/java/com/portablestorage/Config.java
++++ b/src/main/java/com/portablestorage/Config.java
+@@ -1,20 +1,25 @@
+ package com.portablestorage;
+ 
+ import java.io.File;
+ 
+ import net.minecraftforge.common.config.Configuration;
+ 
+-public class Config {
++public final class Config {
+ 
+-    public static String greeting = "Hello World";
++    private Config() {}
+ 
+-    public static void synchronizeConfiguration(File configFile) {
+-        Configuration configuration = new Configuration(configFile);
++    public static int magnetRadius = 8;
+ 
+-        greeting = configuration.getString("greeting", Configuration.CATEGORY_GENERAL, greeting, "How shall I greet?");
++    public static int clampRadius(int v) {
++        return Math.max(1, Math.min(128, v));
++    }
+ 
+-        if (configuration.hasChanged()) {
+-            configuration.save();
++    public static void load(File configFile) {
++        Configuration c = new Configuration(configFile);
++        c.load();
++        magnetRadius = clampRadius(c.getInt("magnetRadius", "magnet", 8, 1, 128, "磁铁吸取半径(格), 1-128"));
++        if (c.hasChanged()) {
++            c.save();
+         }
+     }
+ }
+diff --git a/src/main/java/com/portablestorage/PortableStorageMod.java b/src/main/java/com/portablestorage/PortableStorageMod.java
+index 5f3b366..d3647a7 100644
+--- a/src/main/java/com/portablestorage/PortableStorageMod.java
++++ b/src/main/java/com/portablestorage/PortableStorageMod.java
+@@ -13,19 +13,19 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+     name = "随身仓库",
+     acceptedMinecraftVersions = "[1.7.10]")
+ public class PortableStorageMod {
+ 
+     public static final String MODID = "portablestorage";
+     public static final String VERSION = "1.0.0";
+     public static final Logger LOG = LogManager.getLogger(MODID);
+ 
+     @Mod.EventHandler
+     public void preInit(FMLPreInitializationEvent event) {
+-        Config.synchronizeConfiguration(event.getSuggestedConfigurationFile());
++        Config.load(event.getSuggestedConfigurationFile());
+         LOG.info("PortableStorage preInit (随身仓库) version " + VERSION);
+     }
+ 
+     @Mod.EventHandler
+     public void init(FMLInitializationEvent event) {
+         LOG.info("PortableStorage init");
+     }
+ }
+diff --git a/src/test/java/com/portablestorage/ConfigTest.java b/src/test/java/com/portablestorage/ConfigTest.java
+new file mode 100644
+index 0000000..9a9fb35
+--- /dev/null
++++ b/src/test/java/com/portablestorage/ConfigTest.java
+@@ -0,0 +1,17 @@
++package com.portablestorage;
++
++import static org.junit.Assert.*;
++
++import org.junit.Test;
++
++public class ConfigTest {
++
++    @Test
++    public void clamps() {
++        assertEquals(1, Config.clampRadius(0));
++        assertEquals(1, Config.clampRadius(-5));
++        assertEquals(8, Config.clampRadius(8));
++        assertEquals(128, Config.clampRadius(128));
++        assertEquals(128, Config.clampRadius(999));
++    }
++}

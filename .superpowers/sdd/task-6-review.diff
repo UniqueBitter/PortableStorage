@@ -1,0 +1,77 @@
+### commits
+61611d0 feat: MagnetRouter 三档路由数学 (TDD)
+
+### diff
+diff --git a/src/main/java/com/portablestorage/core/MagnetRouter.java b/src/main/java/com/portablestorage/core/MagnetRouter.java
+new file mode 100644
+index 0000000..48a5c93
+--- /dev/null
++++ b/src/main/java/com/portablestorage/core/MagnetRouter.java
+@@ -0,0 +1,25 @@
++package com.portablestorage.core;
++
++public final class MagnetRouter {
++
++    private MagnetRouter() {}
++
++    public static final class Split {
++
++        public final int toInv, toStorage;
++
++        Split(int i, int s) {
++            toInv = i;
++            toStorage = s;
++        }
++    }
++
++    public static Split route(int mode, int stackSize, int freeSpace) {
++        if (mode == 2) return new Split(0, stackSize);
++        if (mode == 1) {
++            int inv = Math.min(stackSize, Math.max(0, freeSpace));
++            return new Split(inv, stackSize - inv);
++        }
++        return new Split(0, 0);
++    }
++}
+diff --git a/src/test/java/com/portablestorage/core/MagnetRouterTest.java b/src/test/java/com/portablestorage/core/MagnetRouterTest.java
+new file mode 100644
+index 0000000..3d5c0b0
+--- /dev/null
++++ b/src/test/java/com/portablestorage/core/MagnetRouterTest.java
+@@ -0,0 +1,36 @@
++package com.portablestorage.core;
++
++import static org.junit.Assert.*;
++
++import org.junit.Test;
++
++public class MagnetRouterTest {
++
++    @Test
++    public void modeOffTakesNothing() {
++        MagnetRouter.Split s = MagnetRouter.route(0, 10, 64);
++        assertEquals(0, s.toInv);
++        assertEquals(0, s.toStorage);
++    }
++
++    @Test
++    public void modeInventoryFitsAll() {
++        MagnetRouter.Split s = MagnetRouter.route(1, 10, 64);
++        assertEquals(10, s.toInv);
++        assertEquals(0, s.toStorage);
++    }
++
++    @Test
++    public void modeInventoryOverflowsToStorage() {
++        MagnetRouter.Split s = MagnetRouter.route(1, 10, 4);
++        assertEquals(4, s.toInv);
++        assertEquals(6, s.toStorage);
++    }
++
++    @Test
++    public void modeStorageAllToStorage() {
++        MagnetRouter.Split s = MagnetRouter.route(2, 10, 64);
++        assertEquals(0, s.toInv);
++        assertEquals(10, s.toStorage);
++    }
++}

@@ -1,0 +1,124 @@
+### commits
+c7e71db feat: StoredItem DTO + nbtHash (TDD)
+
+### diff
+diff --git a/src/main/java/com/portablestorage/core/StoredItem.java b/src/main/java/com/portablestorage/core/StoredItem.java
+new file mode 100644
+index 0000000..d8b05f7
+--- /dev/null
++++ b/src/main/java/com/portablestorage/core/StoredItem.java
+@@ -0,0 +1,80 @@
++package com.portablestorage.core;
++
++import java.security.MessageDigest;
++
++public final class StoredItem {
++
++    private final String item;
++    private final int meta;
++    private final byte[] nbt;
++    private final String nbtHash;
++    private final long count;
++    private final String name, lore, pinyin, pinyinInitials;
++
++    public StoredItem(String item, int meta, byte[] nbt, String nbtHash, long count, String name, String lore,
++        String pinyin, String pinyinInitials) {
++        this.item = item;
++        this.meta = meta;
++        this.nbt = nbt;
++        this.nbtHash = nbtHash;
++        this.count = count;
++        this.name = name;
++        this.lore = lore;
++        this.pinyin = pinyin;
++        this.pinyinInitials = pinyinInitials;
++    }
++
++    public String getItem() {
++        return item;
++    }
++
++    public int getMeta() {
++        return meta;
++    }
++
++    public byte[] getNbt() {
++        return nbt;
++    }
++
++    public String getNbtHash() {
++        return nbtHash;
++    }
++
++    public long getCount() {
++        return count;
++    }
++
++    public String getName() {
++        return name;
++    }
++
++    public String getLore() {
++        return lore;
++    }
++
++    public String getPinyin() {
++        return pinyin;
++    }
++
++    public String getPinyinInitials() {
++        return pinyinInitials;
++    }
++
++    public StoredItem withCount(long c) {
++        return new StoredItem(item, meta, nbt, nbtHash, c, name, lore, pinyin, pinyinInitials);
++    }
++
++    public static String hashNbt(byte[] nbt) {
++        if (nbt == null || nbt.length == 0) return "-";
++        try {
++            byte[] d = MessageDigest.getInstance("SHA-1")
++                .digest(nbt);
++            StringBuilder sb = new StringBuilder(d.length * 2);
++            for (byte b : d) sb.append(Character.forDigit((b >> 4) & 0xF, 16))
++                .append(Character.forDigit(b & 0xF, 16));
++            return sb.toString();
++        } catch (Exception e) {
++            throw new RuntimeException(e);
++        }
++    }
++}
+diff --git a/src/test/java/com/portablestorage/core/StoredItemTest.java b/src/test/java/com/portablestorage/core/StoredItemTest.java
+new file mode 100644
+index 0000000..5a12711
+--- /dev/null
++++ b/src/test/java/com/portablestorage/core/StoredItemTest.java
+@@ -0,0 +1,28 @@
++package com.portablestorage.core;
++
++import static org.junit.Assert.*;
++
++import org.junit.Test;
++
++public class StoredItemTest {
++
++    @Test
++    public void nbtHashStableAndDistinct() {
++        assertEquals("-", StoredItem.hashNbt(null));
++        assertEquals("-", StoredItem.hashNbt(new byte[0]));
++        String h1 = StoredItem.hashNbt(new byte[] { 1, 2, 3 });
++        String h2 = StoredItem.hashNbt(new byte[] { 1, 2, 3 });
++        String h3 = StoredItem.hashNbt(new byte[] { 9, 9, 9 });
++        assertEquals(h1, h2);
++        assertNotEquals(h1, h3);
++    }
++
++    @Test
++    public void withCountCopies() {
++        StoredItem a = new StoredItem("minecraft:diamond", 0, null, "-", 5, "钻石", "", "zuanshi", "zs");
++        StoredItem b = a.withCount(99);
++        assertEquals(5, a.getCount());
++        assertEquals(99, b.getCount());
++        assertEquals("minecraft:diamond", b.getItem());
++    }
++}

@@ -1,0 +1,911 @@
+### commits
+9276d93 feat: 每存档DB Provider + 容器 + GuiHandler + open/query/action 服务端处理(取出进背包/一键收纳/存入)
+
+### stat
+ .superpowers/sdd/task-7-review.diff                | 130 ++++++++++++++
+ .superpowers/sdd/task-8-report.md                  |  51 ++++++
+ .superpowers/sdd/task-8-review.diff                | 188 +++++++++++++++++++++
+ .superpowers/sdd/task-9-report.md                  |  56 ++++++
+ src/main/java/com/portablestorage/GuiHandler.java  |  24 +++
+ .../com/portablestorage/PortableStorageMod.java    |   5 +
+ .../java/com/portablestorage/StorageProvider.java  |  40 +++++
+ .../java/com/portablestorage/StorageService.java   | 116 +++++++++++++
+ .../portablestorage/client/GuiPortableStorage.java |  17 ++
+ .../java/com/portablestorage/db/StorageDao.java    |  25 +++
+ .../inventory/ContainerPortableStorage.java        |  31 ++++
+ .../portablestorage/item/ItemPortableTerminal.java |   4 +-
+ .../com/portablestorage/net/OpenStoragePacket.java |  15 ++
+ .../com/portablestorage/net/QueryPagePacket.java   |   2 +
+ .../portablestorage/net/StorageActionPacket.java   |   3 +
+ 15 files changed, 706 insertions(+), 1 deletion(-)
+
+### diff
+diff --git a/.superpowers/sdd/task-7-review.diff b/.superpowers/sdd/task-7-review.diff
+new file mode 100644
+index 0000000..d93fdab
+--- /dev/null
++++ b/.superpowers/sdd/task-7-review.diff
+@@ -0,0 +1,130 @@
++### commits
++97c6eb3 feat: Config 磁铁半径 clamp 1-128 (TDD), 接入主类 preInit
++
++### diff
++diff --git a/.superpowers/sdd/task-7-report.md b/.superpowers/sdd/task-7-report.md
++new file mode 100644
++index 0000000..126258f
++--- /dev/null
+++++ b/.superpowers/sdd/task-7-report.md
++@@ -0,0 +1,35 @@
+++# Task 7 Report: Config 磁铁半径 clamp 1–128
+++
+++## Status
+++COMPLETE
+++
+++## TDD Steps Executed
+++1. Wrote failing `ConfigTest.java` — confirmed FAIL (compilation error: `clampRadius` not found in old Config)
+++2. Replaced `Config.java` entirely with real implementation (`magnetRadius`, `clampRadius`, `load`)
+++3. Updated `PortableStorageMod.preInit` to call `Config.load(...)` instead of `Config.synchronizeConfiguration(...)`
+++4. Ran `spotlessApply` — BUILD SUCCESSFUL (reformatted multiline `c.getInt(...)` call)
+++5. Ran `ConfigTest` — BUILD SUCCESSFUL, 1 test passed (clamps)
+++6. Ran full `./gradlew build` — FAILED (checkstyle violations in pre-existing files)
+++
+++## ConfigTest Output
+++```
+++> Task :test
+++BUILD SUCCESSFUL in 4s
+++12 actionable tasks: 3 executed, 9 up-to-date
+++```
+++1 test, 1 passed, 0 failures.
+++
+++## Build Result (full build)
+++BUILD FAILED — checkstyle violations in pre-existing files:
+++- `src/main/java/com/portablestorage/db/StorageDao.java` line 3: `import java.sql.*`
+++- `src/main/java/com/portablestorage/db/StorageDb.java` line 4: `import java.sql.*`
+++- `src/test/java/com/portablestorage/db/StorageDaoTest.java` lines 2,6: `import java.util.*`, `import org.junit.*`
+++
+++**These violations existed BEFORE this task** (confirmed by stashing changes and running build on HEAD — same failure). Task 7 files introduce NO new checkstyle violations.
+++
+++## Commit
+++See git log for commit hash.
+++
+++## Concerns
+++- Pre-existing checkstyle violations in StorageDao/StorageDb/StorageDaoTest (from prior tasks) prevent `./gradlew build` from reaching BUILD SUCCESSFUL. These wildcard imports need to be fixed in those files to achieve a clean build. This task does not introduce the issue.
+++- The `Config.load()` method uses Forge's `Configuration` class and cannot be unit-tested without Forge on the classpath — verified by compilation passing + in-game testing required for full confidence.
++diff --git a/src/main/java/com/portablestorage/Config.java b/src/main/java/com/portablestorage/Config.java
++index fffe774..5548a78 100644
++--- a/src/main/java/com/portablestorage/Config.java
+++++ b/src/main/java/com/portablestorage/Config.java
++@@ -1,20 +1,25 @@
++ package com.portablestorage;
++ 
++ import java.io.File;
++ 
++ import net.minecraftforge.common.config.Configuration;
++ 
++-public class Config {
+++public final class Config {
++ 
++-    public static String greeting = "Hello World";
+++    private Config() {}
++ 
++-    public static void synchronizeConfiguration(File configFile) {
++-        Configuration configuration = new Configuration(configFile);
+++    public static int magnetRadius = 8;
++ 
++-        greeting = configuration.getString("greeting", Configuration.CATEGORY_GENERAL, greeting, "How shall I greet?");
+++    public static int clampRadius(int v) {
+++        return Math.max(1, Math.min(128, v));
+++    }
++ 
++-        if (configuration.hasChanged()) {
++-            configuration.save();
+++    public static void load(File configFile) {
+++        Configuration c = new Configuration(configFile);
+++        c.load();
+++        magnetRadius = clampRadius(c.getInt("magnetRadius", "magnet", 8, 1, 128, "磁铁吸取半径(格), 1-128"));
+++        if (c.hasChanged()) {
+++            c.save();
++         }
++     }
++ }
++diff --git a/src/main/java/com/portablestorage/PortableStorageMod.java b/src/main/java/com/portablestorage/PortableStorageMod.java
++index 5f3b366..d3647a7 100644
++--- a/src/main/java/com/portablestorage/PortableStorageMod.java
+++++ b/src/main/java/com/portablestorage/PortableStorageMod.java
++@@ -13,19 +13,19 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
++     name = "随身仓库",
++     acceptedMinecraftVersions = "[1.7.10]")
++ public class PortableStorageMod {
++ 
++     public static final String MODID = "portablestorage";
++     public static final String VERSION = "1.0.0";
++     public static final Logger LOG = LogManager.getLogger(MODID);
++ 
++     @Mod.EventHandler
++     public void preInit(FMLPreInitializationEvent event) {
++-        Config.synchronizeConfiguration(event.getSuggestedConfigurationFile());
+++        Config.load(event.getSuggestedConfigurationFile());
++         LOG.info("PortableStorage preInit (随身仓库) version " + VERSION);
++     }
++ 
++     @Mod.EventHandler
++     public void init(FMLInitializationEvent event) {
++         LOG.info("PortableStorage init");
++     }
++ }
++diff --git a/src/test/java/com/portablestorage/ConfigTest.java b/src/test/java/com/portablestorage/ConfigTest.java
++new file mode 100644
++index 0000000..9a9fb35
++--- /dev/null
+++++ b/src/test/java/com/portablestorage/ConfigTest.java
++@@ -0,0 +1,17 @@
+++package com.portablestorage;
+++
+++import static org.junit.Assert.*;
+++
+++import org.junit.Test;
+++
+++public class ConfigTest {
+++
+++    @Test
+++    public void clamps() {
+++        assertEquals(1, Config.clampRadius(0));
+++        assertEquals(1, Config.clampRadius(-5));
+++        assertEquals(8, Config.clampRadius(8));
+++        assertEquals(128, Config.clampRadius(128));
+++        assertEquals(128, Config.clampRadius(999));
+++    }
+++}
+diff --git a/.superpowers/sdd/task-8-report.md b/.superpowers/sdd/task-8-report.md
+new file mode 100644
+index 0000000..46f220f
+--- /dev/null
++++ b/.superpowers/sdd/task-8-report.md
+@@ -0,0 +1,51 @@
++# Task 8 Report: ItemStackCodec + 终端道具
++
++## Status
++COMPLETE
++
++## Commit
++`adc38e4` on branch `impl`
++
++## Build Result
++BUILD SUCCESSFUL (spotlessApply + build, 29 tasks, 8s)
++
++## Files Created/Modified
++- `src/main/java/com/portablestorage/item/ItemStackCodec.java` — new, encode/decode between ItemStack ↔ StoredItem
++- `src/main/java/com/portablestorage/item/ItemPortableTerminal.java` — new, placeholder terminal item
++- `src/main/java/com/portablestorage/PortableStorageMod.java` — modified, added `terminal` field + GameRegistry.registerItem in preInit
++- `src/main/resources/assets/portablestorage/lang/zh_CN.lang` — new
++- `src/main/resources/assets/portablestorage/lang/en_US.lang` — new
++- `src/main/resources/assets/portablestorage/textures/items/terminal.png` — new 16x16 purple placeholder PNG (80 bytes)
++
++## MC-API Deviations from Brief
++None. All specified 1.7.10 Forge APIs resolved correctly:
++- `Item.itemRegistry.getNameForObject(item)` returns `Object` in 1.7.10; cast to `String` applied.
++- `Item.itemRegistry.getObject(name)` returns `Object`; cast to `Item` applied (as specified).
++- `st.getTagCompound()` used (correct 1.7.10 name, matches `hasTagCompound()`).
++- `NBTTagCompound.hasKey(key, typeId)` used for type-checking: 10 = compound, 9 = list, 8 = string.
++- `CompressedStreamTools.writeCompressed` / `readCompressed` — standard 1.7.10 API, no deviations.
++- Spotless reformatted two chained lines (`.toLowerCase()` and `new ByteArrayInputStream(...)` on next line) — no logic changes.
++
++## Texture Status
++Placeholder 16x16 purple PNG generated via Python `struct`+`zlib` (80 bytes, valid PNG). Will show as solid purple in-game until replaced with final artwork. No crash risk (missing texture = pink/black; placeholder PNG = purple solid).
++
++## Concerns
++None. The `onItemRightClick` placeholder is intentional per spec; GUI wiring is deferred to Task 12.
++
++---
++
++## Bug-fix Amendment — commit `f66bb8a`
++
++### Fix 1 (CRITICAL) — decode NBT round-trip
++Old code passed the decompressed tag compound directly to `ItemStack.loadItemStackFromNBT()`, which expects a full ItemStack NBT (id/Count/Damage/tag). Because encode stores only the item's tag compound (not a full ItemStack NBT), this returned null and silently discarded all NBT data (enchants, custom names, RPG attributes).
++
++New code always rebuilds the ItemStack from item+meta+amount via `new ItemStack(it, amount, si.getMeta())`, then attaches the decompressed tag compound via `st.setTagCompound(tag)`.
++
++### Fix 2 (IMPORTANT) — null registry name guard in encode
++Added null check after `Item.itemRegistry.getNameForObject(st.getItem())`. If the item is not registered, throws `IllegalArgumentException("Item not in registry: " + st.getItem())` instead of silently storing a null item name that causes a crash later.
++
++### Fix 3 (MINOR) — strip color codes from search fields
++`encode` now strips `§`-prefixed color codes from display names via `EnumChatFormatting.getTextWithoutFormattingCodes()` before lowercasing for the `name` column and before passing to `PinyinUtil.fullPinyin()` / `PinyinUtil.initials()`. Lore strings are also stripped the same way. Explicit import added: `net.minecraft.util.EnumChatFormatting`.
++
++### Build Result
++BUILD SUCCESSFUL (spotlessApply + build, 29 tasks, 9s)
+diff --git a/.superpowers/sdd/task-8-review.diff b/.superpowers/sdd/task-8-review.diff
+new file mode 100644
+index 0000000..8f07c4e
+--- /dev/null
++++ b/.superpowers/sdd/task-8-review.diff
+@@ -0,0 +1,188 @@
++### commits
++adc38e4 feat: ItemStackCodec + 终端道具(创造栏/give, 无配方)
++
++### stat
++ .../com/portablestorage/PortableStorageMod.java    |   7 ++
++ .../portablestorage/item/ItemPortableTerminal.java |  25 +++++++
++ .../com/portablestorage/item/ItemStackCodec.java   |  81 +++++++++++++++++++++
++ .../assets/portablestorage/lang/en_US.lang         |   1 +
++ .../assets/portablestorage/lang/zh_CN.lang         |   1 +
++ .../portablestorage/textures/items/terminal.png    | Bin 0 -> 80 bytes
++ 6 files changed, 115 insertions(+)
++
++### diff (excl png)
++diff --git a/src/main/java/com/portablestorage/PortableStorageMod.java b/src/main/java/com/portablestorage/PortableStorageMod.java
++index d3647a7..7226d8b 100644
++--- a/src/main/java/com/portablestorage/PortableStorageMod.java
+++++ b/src/main/java/com/portablestorage/PortableStorageMod.java
++@@ -1,31 +1,38 @@
++ package com.portablestorage;
++ 
++ import org.apache.logging.log4j.LogManager;
++ import org.apache.logging.log4j.Logger;
++ 
+++import com.portablestorage.item.ItemPortableTerminal;
+++
++ import cpw.mods.fml.common.Mod;
++ import cpw.mods.fml.common.event.FMLInitializationEvent;
++ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+++import cpw.mods.fml.common.registry.GameRegistry;
++ 
++ @Mod(
++     modid = PortableStorageMod.MODID,
++     version = PortableStorageMod.VERSION,
++     name = "随身仓库",
++     acceptedMinecraftVersions = "[1.7.10]")
++ public class PortableStorageMod {
++ 
++     public static final String MODID = "portablestorage";
++     public static final String VERSION = "1.0.0";
++     public static final Logger LOG = LogManager.getLogger(MODID);
++ 
+++    public static ItemPortableTerminal terminal;
+++
++     @Mod.EventHandler
++     public void preInit(FMLPreInitializationEvent event) {
++         Config.load(event.getSuggestedConfigurationFile());
+++        terminal = new ItemPortableTerminal();
+++        GameRegistry.registerItem(terminal, "terminal");
++         LOG.info("PortableStorage preInit (随身仓库) version " + VERSION);
++     }
++ 
++     @Mod.EventHandler
++     public void init(FMLInitializationEvent event) {
++         LOG.info("PortableStorage init");
++     }
++ }
++diff --git a/src/main/java/com/portablestorage/item/ItemPortableTerminal.java b/src/main/java/com/portablestorage/item/ItemPortableTerminal.java
++new file mode 100644
++index 0000000..505f68f
++--- /dev/null
+++++ b/src/main/java/com/portablestorage/item/ItemPortableTerminal.java
++@@ -0,0 +1,25 @@
+++package com.portablestorage.item;
+++
+++import net.minecraft.creativetab.CreativeTabs;
+++import net.minecraft.entity.player.EntityPlayer;
+++import net.minecraft.item.Item;
+++import net.minecraft.item.ItemStack;
+++import net.minecraft.world.World;
+++
+++import com.portablestorage.PortableStorageMod;
+++
+++public class ItemPortableTerminal extends Item {
+++
+++    public ItemPortableTerminal() {
+++        setUnlocalizedName("portablestorage_terminal");
+++        setTextureName(PortableStorageMod.MODID + ":terminal");
+++        setMaxStackSize(1);
+++        setCreativeTab(CreativeTabs.tabTools);
+++    }
+++
+++    @Override
+++    public ItemStack onItemRightClick(ItemStack stack, World world, EntityPlayer player) {
+++        // 打开仓库的逻辑将在 Task 12(按键/网络)接线; 此处先占位不报错。
+++        return stack;
+++    }
+++}
++diff --git a/src/main/java/com/portablestorage/item/ItemStackCodec.java b/src/main/java/com/portablestorage/item/ItemStackCodec.java
++new file mode 100644
++index 0000000..8e6d66a
++--- /dev/null
+++++ b/src/main/java/com/portablestorage/item/ItemStackCodec.java
++@@ -0,0 +1,81 @@
+++package com.portablestorage.item;
+++
+++import java.io.ByteArrayInputStream;
+++import java.io.ByteArrayOutputStream;
+++import java.io.IOException;
+++
+++import net.minecraft.item.Item;
+++import net.minecraft.item.ItemStack;
+++import net.minecraft.nbt.CompressedStreamTools;
+++import net.minecraft.nbt.NBTTagCompound;
+++import net.minecraft.nbt.NBTTagList;
+++
+++import com.portablestorage.core.PinyinUtil;
+++import com.portablestorage.core.StoredItem;
+++
+++public final class ItemStackCodec {
+++
+++    private ItemStackCodec() {}
+++
+++    public static StoredItem encode(ItemStack st) {
+++        String itemName = (String) Item.itemRegistry.getNameForObject(st.getItem());
+++        int meta = st.getItemDamage();
+++
+++        byte[] nbt = null;
+++        if (st.hasTagCompound()) {
+++            try {
+++                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+++                CompressedStreamTools.writeCompressed(st.getTagCompound(), baos);
+++                nbt = baos.toByteArray();
+++            } catch (IOException e) {
+++                throw new RuntimeException(e);
+++            }
+++        }
+++
+++        String nbtHash = StoredItem.hashNbt(nbt);
+++        long count = st.stackSize;
+++
+++        String displayName = st.getDisplayName();
+++        if (displayName == null) displayName = "";
+++        String nameLower = displayName.toLowerCase();
+++
+++        String lore = "";
+++        if (st.hasTagCompound()) {
+++            NBTTagCompound tag = st.getTagCompound();
+++            if (tag.hasKey("display", 10)) {
+++                NBTTagCompound display = tag.getCompoundTag("display");
+++                if (display.hasKey("Lore", 9)) {
+++                    NBTTagList list = display.getTagList("Lore", 8);
+++                    StringBuilder sb = new StringBuilder();
+++                    for (int i = 0; i < list.tagCount(); i++) {
+++                        if (i > 0) sb.append(' ');
+++                        sb.append(list.getStringTagAt(i));
+++                    }
+++                    lore = sb.toString()
+++                        .toLowerCase();
+++                }
+++            }
+++        }
+++
+++        String pinyin = PinyinUtil.fullPinyin(displayName);
+++        String pinyinInitials = PinyinUtil.initials(displayName);
+++
+++        return new StoredItem(itemName, meta, nbt, nbtHash, count, nameLower, lore, pinyin, pinyinInitials);
+++    }
+++
+++    public static ItemStack decode(StoredItem si, int amount) {
+++        if (si.getNbt() != null) {
+++            try {
+++                NBTTagCompound tag = CompressedStreamTools.readCompressed(new ByteArrayInputStream(si.getNbt()));
+++                ItemStack st = ItemStack.loadItemStackFromNBT(tag);
+++                if (st != null) {
+++                    st.stackSize = amount;
+++                    return st;
+++                }
+++            } catch (IOException e) {
+++                throw new RuntimeException(e);
+++            }
+++        }
+++        return new ItemStack((Item) Item.itemRegistry.getObject(si.getItem()), amount, si.getMeta());
+++    }
+++}
++diff --git a/src/main/resources/assets/portablestorage/lang/en_US.lang b/src/main/resources/assets/portablestorage/lang/en_US.lang
++new file mode 100644
++index 0000000..176dd33
++--- /dev/null
+++++ b/src/main/resources/assets/portablestorage/lang/en_US.lang
++@@ -0,0 +1 @@
+++item.portablestorage_terminal.name=Portable Storage Terminal
++diff --git a/src/main/resources/assets/portablestorage/lang/zh_CN.lang b/src/main/resources/assets/portablestorage/lang/zh_CN.lang
++new file mode 100644
++index 0000000..c989d68
++--- /dev/null
+++++ b/src/main/resources/assets/portablestorage/lang/zh_CN.lang
++@@ -0,0 +1 @@
+++item.portablestorage_terminal.name=随身仓库终端
+diff --git a/.superpowers/sdd/task-9-report.md b/.superpowers/sdd/task-9-report.md
+new file mode 100644
+index 0000000..d286db7
+--- /dev/null
++++ b/.superpowers/sdd/task-9-report.md
+@@ -0,0 +1,56 @@
++# Task 9 Report — 网络层 SimpleNetworkWrapper + 6数据包 + DAO queryWindowWithIds
++
++## Status
++COMPLETE — BUILD SUCCESSFUL
++
++## Commit
++- Hash: `d38cf68`
++- Message: `feat: 网络层 SimpleNetworkWrapper + 6数据包(序列化完整,handler暂为stub) + DAO queryWindowWithIds`
++- Files changed: 9 (7 created, 2 modified)
++
++## Build Summary
++```
++./gradlew spotlessApply --console=plain  → BUILD SUCCESSFUL in 2s
++./gradlew build --console=plain          → BUILD SUCCESSFUL in 11s
++```
++All checkstyle, spotless, compile, and test tasks passed.
++
++## Changes Made
++
++### 9a. StorageDao — `queryWindowWithIds` + `PageResult`
++- File: `src/main/java/com/portablestorage/db/StorageDao.java`
++- Added inner static class `PageResult` with fields `long[] ids`, `List<StoredItem> items`, `long total`
++- Added method `queryWindowWithIds(String player, String keyword, int offset, int limit)` that:
++  - Delegates to existing `queryWindow()` for item data
++  - Issues a second SQL query for row IDs using the same `where()`/`bindWhere()` helpers
++  - Returns a `PageResult` combining ids, items, and `countMatches()` total
++
++### 9b. 6 Packet Classes — `com.portablestorage.net`
++All packets implement `IMessage` with public no-arg constructor, convenience constructor, and a nested `Handler` (stub returning `null`):
++
++| Class | Direction | Fields | Serialization |
++|---|---|---|---|
++| `OpenStoragePacket` | C→S | none | empty toBytes/fromBytes |
++| `QueryPagePacket` | C→S | `String keyword; int offset; int limit` | writeUTF8String + 2×writeInt |
++| `PageResultPacket` | S→C | `long total; int offset; long[] ids; String[] items; int[] metas; long[] counts; String[] names` | writeLong + writeInt + writeInt(n) + loop: writeLong,writeUTF8String,writeInt,writeLong,writeUTF8String |
++| `StorageActionPacket` | C→S | `int action; long id; int amount; String keyword; int offset` | writeInt,writeLong,writeInt,writeUTF8String,writeInt |
++| `MagnetModePacket` | C→S | none | empty toBytes/fromBytes |
++| `MagnetModeAckPacket` | S→C | `int mode` | writeInt/readInt |
++
++Null-guard on keyword: `QueryPagePacket` and `StorageActionPacket` write `""` if keyword is null.
++
++### 9c. `NetworkHandler`
++- File: `src/main/java/com/portablestorage/net/NetworkHandler.java`
++- `INSTANCE` is a `SimpleNetworkWrapper` for channel `"portablestorage"`
++- `register()` registers all 6 message types with sequential IDs (0–5) and correct `Side` values
++- Helper methods: `openStorage()`, `requestPage()`, `sendAction()`, `cycleMagnet()`
++
++### 9d. `PortableStorageMod.init` Registration
++- File: `src/main/java/com/portablestorage/PortableStorageMod.java`
++- Added `import com.portablestorage.net.NetworkHandler;`
++- Added `NetworkHandler.register();` as the first call in the `init()` method
++
++## Concerns / Notes
++- All 6 handlers are stubs (`onMessage` returns `null`). Actual server/client logic will be wired in subsequent tasks.
++- `NetworkHandler.INSTANCE` is initialized at class-load time (static field). This is standard FML practice; `register()` must be called during `init` (not `preInit`) to avoid ordering issues with FML side detection.
++- `queryWindowWithIds` issues two SQL queries per call (one via `queryWindow`, one for IDs). A single query with both `id` and all item columns could be more efficient but would require refactoring `queryWindow`; the two-query approach reuses existing methods cleanly.
+diff --git a/src/main/java/com/portablestorage/GuiHandler.java b/src/main/java/com/portablestorage/GuiHandler.java
+new file mode 100644
+index 0000000..aed8cd4
+--- /dev/null
++++ b/src/main/java/com/portablestorage/GuiHandler.java
+@@ -0,0 +1,24 @@
++package com.portablestorage;
++
++import net.minecraft.entity.player.EntityPlayer;
++import net.minecraft.world.World;
++
++import com.portablestorage.client.GuiPortableStorage;
++import com.portablestorage.inventory.ContainerPortableStorage;
++
++import cpw.mods.fml.common.network.IGuiHandler;
++
++public class GuiHandler implements IGuiHandler {
++
++    public static final int GUI_STORAGE = 0;
++
++    @Override
++    public Object getServerGuiElement(int id, EntityPlayer player, World world, int x, int y, int z) {
++        return new ContainerPortableStorage(player);
++    }
++
++    @Override
++    public Object getClientGuiElement(int id, EntityPlayer player, World world, int x, int y, int z) {
++        return new GuiPortableStorage(new ContainerPortableStorage(player));
++    }
++}
+diff --git a/src/main/java/com/portablestorage/PortableStorageMod.java b/src/main/java/com/portablestorage/PortableStorageMod.java
+index 78ae95c..1457411 100644
+--- a/src/main/java/com/portablestorage/PortableStorageMod.java
++++ b/src/main/java/com/portablestorage/PortableStorageMod.java
+@@ -17,24 +17,29 @@ import cpw.mods.fml.common.registry.GameRegistry;
+     name = "随身仓库",
+     acceptedMinecraftVersions = "[1.7.10]")
+ public class PortableStorageMod {
+ 
+     public static final String MODID = "portablestorage";
+     public static final String VERSION = "1.0.0";
+     public static final Logger LOG = LogManager.getLogger(MODID);
+ 
++    @Mod.Instance(PortableStorageMod.MODID)
++    public static PortableStorageMod instance;
++
+     public static ItemPortableTerminal terminal;
+ 
+     @Mod.EventHandler
+     public void preInit(FMLPreInitializationEvent event) {
+         Config.load(event.getSuggestedConfigurationFile());
+         terminal = new ItemPortableTerminal();
+         GameRegistry.registerItem(terminal, "terminal");
+         LOG.info("PortableStorage preInit (随身仓库) version " + VERSION);
+     }
+ 
+     @Mod.EventHandler
+     public void init(FMLInitializationEvent event) {
+         NetworkHandler.register();
++        cpw.mods.fml.common.network.NetworkRegistry.INSTANCE.registerGuiHandler(instance, new GuiHandler());
++        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new StorageProvider());
+         LOG.info("PortableStorage init");
+     }
+ }
+diff --git a/src/main/java/com/portablestorage/StorageProvider.java b/src/main/java/com/portablestorage/StorageProvider.java
+new file mode 100644
+index 0000000..840fba8
+--- /dev/null
++++ b/src/main/java/com/portablestorage/StorageProvider.java
+@@ -0,0 +1,40 @@
++package com.portablestorage;
++
++import java.io.File;
++import java.util.HashMap;
++import java.util.Map;
++
++import net.minecraft.server.MinecraftServer;
++import net.minecraftforge.event.world.WorldEvent;
++
++import com.portablestorage.db.StorageDao;
++import com.portablestorage.db.StorageDb;
++
++import cpw.mods.fml.common.eventhandler.SubscribeEvent;
++
++public class StorageProvider {
++
++    private static final Map<String, StorageDb> DBS = new HashMap<String, StorageDb>();
++
++    public static synchronized StorageDao dao() {
++        File dir = MinecraftServer.getServer()
++            .getEntityWorld()
++            .getSaveHandler()
++            .getWorldDirectory();
++        String key = dir.getAbsolutePath();
++        StorageDb db = DBS.get(key);
++        if (db == null) {
++            db = new StorageDb(new File(dir, "portablestorage/storage.db"));
++            DBS.put(key, db);
++        }
++        return new StorageDao(db);
++    }
++
++    @SubscribeEvent
++    public void onUnload(WorldEvent.Unload e) {
++        if (!e.world.isRemote && e.world.provider.dimensionId == 0) {
++            for (StorageDb db : DBS.values()) db.close();
++            DBS.clear();
++        }
++    }
++}
+diff --git a/src/main/java/com/portablestorage/StorageService.java b/src/main/java/com/portablestorage/StorageService.java
+new file mode 100644
+index 0000000..73541e4
+--- /dev/null
++++ b/src/main/java/com/portablestorage/StorageService.java
+@@ -0,0 +1,116 @@
++package com.portablestorage;
++
++import java.util.ArrayList;
++import java.util.List;
++
++import net.minecraft.entity.player.EntityPlayerMP;
++import net.minecraft.item.ItemStack;
++
++import com.portablestorage.core.StoredItem;
++import com.portablestorage.db.StorageDao;
++import com.portablestorage.item.ItemPortableTerminal;
++import com.portablestorage.item.ItemStackCodec;
++import com.portablestorage.net.NetworkHandler;
++import com.portablestorage.net.PageResultPacket;
++
++public final class StorageService {
++
++    public static final int WINDOW = 90;
++
++    private StorageService() {}
++
++    public static void sendPage(EntityPlayerMP p, String keyword, int offset) {
++        StorageDao dao = StorageProvider.dao();
++        StorageDao.PageResult r = dao.queryWindowWithIds(
++            p.getUniqueID()
++                .toString(),
++            keyword,
++            offset,
++            WINDOW);
++        int n = r.items.size();
++        long[] ids = r.ids;
++        String[] items = new String[n];
++        int[] metas = new int[n];
++        long[] counts = new long[n];
++        String[] names = new String[n];
++        for (int i = 0; i < n; i++) {
++            items[i] = r.items.get(i)
++                .getItem();
++            metas[i] = r.items.get(i)
++                .getMeta();
++            counts[i] = r.items.get(i)
++                .getCount();
++            names[i] = r.items.get(i)
++                .getName();
++        }
++        NetworkHandler.INSTANCE.sendTo(new PageResultPacket(r.total, offset, ids, items, metas, counts, names), p);
++    }
++
++    public static void handleAction(EntityPlayerMP p, int action, long id, int amount, String keyword, int offset) {
++        StorageDao dao = StorageProvider.dao();
++        String uuid = p.getUniqueID()
++            .toString();
++        switch (action) {
++            case 0: // TAKE_STACK
++            case 2: // TAKE_TO_INV (same behavior)
++                takeToInventory(p, dao, uuid, id, -1);
++                break;
++            case 1: // TAKE_ONE
++                takeToInventory(p, dao, uuid, id, 1);
++                break;
++            case 3: // DEPOSIT_CURSOR
++                depositCursor(p, dao, uuid);
++                break;
++            case 4: // QUICK_DEPOSIT_ALL
++                quickDepositAll(p, dao, uuid);
++                break;
++            default:
++                break;
++        }
++        sendPage(p, keyword, offset);
++    }
++
++    private static void takeToInventory(EntityPlayerMP p, StorageDao dao, String uuid, long id, int requested) {
++        StoredItem si = dao.findById(uuid, id);
++        if (si == null) return;
++        int maxStack = ItemStackCodec.decode(si, 1)
++            .getMaxStackSize();
++        int want = requested < 0 ? maxStack : Math.min(requested, maxStack);
++        long took = dao.extract(uuid, id, want);
++        if (took <= 0) return;
++        ItemStack give = ItemStackCodec.decode(si, (int) took);
++        boolean added = p.inventory.addItemStackToInventory(give);
++        if (!added || give.stackSize > 0) {
++            int leftover = give.stackSize;
++            if (leftover > 0) {
++                StoredItem back = si.withCount(leftover);
++                dao.upsert(uuid, back);
++            }
++        }
++        p.inventoryContainer.detectAndSendChanges();
++        if (p.openContainer != null) p.openContainer.detectAndSendChanges();
++    }
++
++    private static void depositCursor(EntityPlayerMP p, StorageDao dao, String uuid) {
++        ItemStack held = p.inventory.getItemStack();
++        if (held == null) return;
++        dao.upsert(uuid, ItemStackCodec.encode(held));
++        p.inventory.setItemStack(null);
++        p.playerNetServerHandler
++            .sendPacket(new net.minecraft.network.play.server.S2FPacketSetSlot(-1, -1, p.inventory.getItemStack()));
++    }
++
++    private static void quickDepositAll(EntityPlayerMP p, StorageDao dao, String uuid) {
++        List<StoredItem> batch = new ArrayList<StoredItem>();
++        for (int i = 0; i < p.inventory.mainInventory.length; i++) {
++            ItemStack st = p.inventory.mainInventory[i];
++            if (st == null) continue;
++            if (st.getItem() instanceof ItemPortableTerminal) continue;
++            batch.add(ItemStackCodec.encode(st));
++            p.inventory.mainInventory[i] = null;
++        }
++        if (!batch.isEmpty()) dao.upsertBatch(uuid, batch);
++        p.inventoryContainer.detectAndSendChanges();
++        if (p.openContainer != null) p.openContainer.detectAndSendChanges();
++    }
++}
+diff --git a/src/main/java/com/portablestorage/client/GuiPortableStorage.java b/src/main/java/com/portablestorage/client/GuiPortableStorage.java
+new file mode 100644
+index 0000000..f99c15b
+--- /dev/null
++++ b/src/main/java/com/portablestorage/client/GuiPortableStorage.java
+@@ -0,0 +1,17 @@
++package com.portablestorage.client;
++
++import net.minecraft.client.gui.inventory.GuiContainer;
++import net.minecraft.inventory.Container;
++
++public class GuiPortableStorage extends GuiContainer {
++
++    public GuiPortableStorage(Container container) {
++        super(container);
++        this.ySize = 222;
++    }
++
++    @Override
++    protected void drawGuiContainerBackgroundLayer(float partialTicks, int mouseX, int mouseY) {
++        drawDefaultBackground();
++    }
++}
+diff --git a/src/main/java/com/portablestorage/db/StorageDao.java b/src/main/java/com/portablestorage/db/StorageDao.java
+index ac4ebba..cdd3ddd 100644
+--- a/src/main/java/com/portablestorage/db/StorageDao.java
++++ b/src/main/java/com/portablestorage/db/StorageDao.java
+@@ -207,16 +207,41 @@ public class StorageDao {
+ 
+         public PageResult(long[] ids, List<StoredItem> items, long total) {
+             this.ids = ids;
+             this.items = items;
+             this.total = total;
+         }
+     }
+ 
++    public StoredItem findById(String player, long id) {
++        String sql = "SELECT item,meta,nbt,nbt_hash,count,name,lore,pinyin,pinyin_in FROM entries WHERE player=? AND id=?";
++        try (java.sql.PreparedStatement ps = db.getConnection()
++            .prepareStatement(sql)) {
++            ps.setString(1, player);
++            ps.setLong(2, id);
++            try (java.sql.ResultSet rs = ps.executeQuery()) {
++                if (!rs.next()) return null;
++                byte[] nbt = rs.getBytes("nbt");
++                return new StoredItem(
++                    rs.getString("item"),
++                    rs.getInt("meta"),
++                    nbt,
++                    rs.getString("nbt_hash"),
++                    rs.getLong("count"),
++                    rs.getString("name"),
++                    rs.getString("lore"),
++                    rs.getString("pinyin"),
++                    rs.getString("pinyin_in"));
++            }
++        } catch (java.sql.SQLException e) {
++            throw new RuntimeException(e);
++        }
++    }
++
+     public PageResult queryWindowWithIds(String player, String keyword, int offset, int limit) {
+         List<StoredItem> items = queryWindow(player, keyword, offset, limit);
+         long[] ids = new long[items.size()];
+         String sql = "SELECT id FROM entries WHERE " + where(keyword) + " ORDER BY name LIMIT ? OFFSET ?";
+         try (PreparedStatement ps = db.getConnection()
+             .prepareStatement(sql)) {
+             int idx = bindWhere(ps, player, keyword);
+             ps.setInt(idx, limit);
+diff --git a/src/main/java/com/portablestorage/inventory/ContainerPortableStorage.java b/src/main/java/com/portablestorage/inventory/ContainerPortableStorage.java
+new file mode 100644
+index 0000000..4667a26
+--- /dev/null
++++ b/src/main/java/com/portablestorage/inventory/ContainerPortableStorage.java
+@@ -0,0 +1,31 @@
++package com.portablestorage.inventory;
++
++import net.minecraft.entity.player.EntityPlayer;
++import net.minecraft.entity.player.InventoryPlayer;
++import net.minecraft.inventory.Container;
++import net.minecraft.inventory.Slot;
++import net.minecraft.item.ItemStack;
++
++public class ContainerPortableStorage extends Container {
++
++    public final EntityPlayer player;
++
++    public ContainerPortableStorage(EntityPlayer player) {
++        this.player = player;
++        InventoryPlayer inv = player.inventory;
++        int top = 140;
++        for (int row = 0; row < 3; row++) for (int col = 0; col < 9; col++)
++            addSlotToContainer(new Slot(inv, col + row * 9 + 9, 8 + col * 18, top + row * 18));
++        for (int col = 0; col < 9; col++) addSlotToContainer(new Slot(inv, col, 8 + col * 18, top + 58));
++    }
++
++    @Override
++    public boolean canInteractWith(EntityPlayer p) {
++        return true;
++    }
++
++    @Override
++    public ItemStack transferStackInSlot(EntityPlayer p, int index) {
++        return null;
++    }
++}
+diff --git a/src/main/java/com/portablestorage/item/ItemPortableTerminal.java b/src/main/java/com/portablestorage/item/ItemPortableTerminal.java
+index 505f68f..0d46b02 100644
+--- a/src/main/java/com/portablestorage/item/ItemPortableTerminal.java
++++ b/src/main/java/com/portablestorage/item/ItemPortableTerminal.java
+@@ -14,12 +14,14 @@ public class ItemPortableTerminal extends Item {
+         setUnlocalizedName("portablestorage_terminal");
+         setTextureName(PortableStorageMod.MODID + ":terminal");
+         setMaxStackSize(1);
+         setCreativeTab(CreativeTabs.tabTools);
+     }
+ 
+     @Override
+     public ItemStack onItemRightClick(ItemStack stack, World world, EntityPlayer player) {
+-        // 打开仓库的逻辑将在 Task 12(按键/网络)接线; 此处先占位不报错。
++        if (world.isRemote) {
++            com.portablestorage.net.NetworkHandler.openStorage();
++        }
+         return stack;
+     }
+ }
+diff --git a/src/main/java/com/portablestorage/net/OpenStoragePacket.java b/src/main/java/com/portablestorage/net/OpenStoragePacket.java
+index f211601..c15b599 100644
+--- a/src/main/java/com/portablestorage/net/OpenStoragePacket.java
++++ b/src/main/java/com/portablestorage/net/OpenStoragePacket.java
+@@ -1,10 +1,16 @@
+ package com.portablestorage.net;
+ 
++import net.minecraft.entity.player.EntityPlayerMP;
++
++import com.portablestorage.GuiHandler;
++import com.portablestorage.PortableStorageMod;
++import com.portablestorage.StorageService;
++
+ import cpw.mods.fml.common.network.simpleimpl.IMessage;
+ import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
+ import cpw.mods.fml.common.network.simpleimpl.MessageContext;
+ import io.netty.buffer.ByteBuf;
+ 
+ public class OpenStoragePacket implements IMessage {
+ 
+     public OpenStoragePacket() {}
+@@ -14,12 +20,21 @@ public class OpenStoragePacket implements IMessage {
+ 
+     @Override
+     public void fromBytes(ByteBuf buf) {}
+ 
+     public static class Handler implements IMessageHandler<OpenStoragePacket, IMessage> {
+ 
+         @Override
+         public IMessage onMessage(OpenStoragePacket message, MessageContext ctx) {
++            EntityPlayerMP p = ctx.getServerHandler().playerEntity;
++            p.openGui(
++                PortableStorageMod.instance,
++                GuiHandler.GUI_STORAGE,
++                p.worldObj,
++                (int) p.posX,
++                (int) p.posY,
++                (int) p.posZ);
++            StorageService.sendPage(p, "", 0);
+             return null;
+         }
+     }
+ }
+diff --git a/src/main/java/com/portablestorage/net/QueryPagePacket.java b/src/main/java/com/portablestorage/net/QueryPagePacket.java
+index 4ddf216..71cd187 100644
+--- a/src/main/java/com/portablestorage/net/QueryPagePacket.java
++++ b/src/main/java/com/portablestorage/net/QueryPagePacket.java
+@@ -33,12 +33,14 @@ public class QueryPagePacket implements IMessage {
+         offset = buf.readInt();
+         limit = buf.readInt();
+     }
+ 
+     public static class Handler implements IMessageHandler<QueryPagePacket, IMessage> {
+ 
+         @Override
+         public IMessage onMessage(QueryPagePacket message, MessageContext ctx) {
++            net.minecraft.entity.player.EntityPlayerMP p = ctx.getServerHandler().playerEntity;
++            com.portablestorage.StorageService.sendPage(p, message.keyword, message.offset);
+             return null;
+         }
+     }
+ }
+diff --git a/src/main/java/com/portablestorage/net/StorageActionPacket.java b/src/main/java/com/portablestorage/net/StorageActionPacket.java
+index 0c37539..78a65d3 100644
+--- a/src/main/java/com/portablestorage/net/StorageActionPacket.java
++++ b/src/main/java/com/portablestorage/net/StorageActionPacket.java
+@@ -41,12 +41,15 @@ public class StorageActionPacket implements IMessage {
+         keyword = ByteBufUtils.readUTF8String(buf);
+         offset = buf.readInt();
+     }
+ 
+     public static class Handler implements IMessageHandler<StorageActionPacket, IMessage> {
+ 
+         @Override
+         public IMessage onMessage(StorageActionPacket message, MessageContext ctx) {
++            net.minecraft.entity.player.EntityPlayerMP p = ctx.getServerHandler().playerEntity;
++            com.portablestorage.StorageService
++                .handleAction(p, message.action, message.id, message.amount, message.keyword, message.offset);
+             return null;
+         }
+     }
+ }

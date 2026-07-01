@@ -1,0 +1,188 @@
+### commits
+adc38e4 feat: ItemStackCodec + 终端道具(创造栏/give, 无配方)
+
+### stat
+ .../com/portablestorage/PortableStorageMod.java    |   7 ++
+ .../portablestorage/item/ItemPortableTerminal.java |  25 +++++++
+ .../com/portablestorage/item/ItemStackCodec.java   |  81 +++++++++++++++++++++
+ .../assets/portablestorage/lang/en_US.lang         |   1 +
+ .../assets/portablestorage/lang/zh_CN.lang         |   1 +
+ .../portablestorage/textures/items/terminal.png    | Bin 0 -> 80 bytes
+ 6 files changed, 115 insertions(+)
+
+### diff (excl png)
+diff --git a/src/main/java/com/portablestorage/PortableStorageMod.java b/src/main/java/com/portablestorage/PortableStorageMod.java
+index d3647a7..7226d8b 100644
+--- a/src/main/java/com/portablestorage/PortableStorageMod.java
++++ b/src/main/java/com/portablestorage/PortableStorageMod.java
+@@ -1,31 +1,38 @@
+ package com.portablestorage;
+ 
+ import org.apache.logging.log4j.LogManager;
+ import org.apache.logging.log4j.Logger;
+ 
++import com.portablestorage.item.ItemPortableTerminal;
++
+ import cpw.mods.fml.common.Mod;
+ import cpw.mods.fml.common.event.FMLInitializationEvent;
+ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
++import cpw.mods.fml.common.registry.GameRegistry;
+ 
+ @Mod(
+     modid = PortableStorageMod.MODID,
+     version = PortableStorageMod.VERSION,
+     name = "随身仓库",
+     acceptedMinecraftVersions = "[1.7.10]")
+ public class PortableStorageMod {
+ 
+     public static final String MODID = "portablestorage";
+     public static final String VERSION = "1.0.0";
+     public static final Logger LOG = LogManager.getLogger(MODID);
+ 
++    public static ItemPortableTerminal terminal;
++
+     @Mod.EventHandler
+     public void preInit(FMLPreInitializationEvent event) {
+         Config.load(event.getSuggestedConfigurationFile());
++        terminal = new ItemPortableTerminal();
++        GameRegistry.registerItem(terminal, "terminal");
+         LOG.info("PortableStorage preInit (随身仓库) version " + VERSION);
+     }
+ 
+     @Mod.EventHandler
+     public void init(FMLInitializationEvent event) {
+         LOG.info("PortableStorage init");
+     }
+ }
+diff --git a/src/main/java/com/portablestorage/item/ItemPortableTerminal.java b/src/main/java/com/portablestorage/item/ItemPortableTerminal.java
+new file mode 100644
+index 0000000..505f68f
+--- /dev/null
++++ b/src/main/java/com/portablestorage/item/ItemPortableTerminal.java
+@@ -0,0 +1,25 @@
++package com.portablestorage.item;
++
++import net.minecraft.creativetab.CreativeTabs;
++import net.minecraft.entity.player.EntityPlayer;
++import net.minecraft.item.Item;
++import net.minecraft.item.ItemStack;
++import net.minecraft.world.World;
++
++import com.portablestorage.PortableStorageMod;
++
++public class ItemPortableTerminal extends Item {
++
++    public ItemPortableTerminal() {
++        setUnlocalizedName("portablestorage_terminal");
++        setTextureName(PortableStorageMod.MODID + ":terminal");
++        setMaxStackSize(1);
++        setCreativeTab(CreativeTabs.tabTools);
++    }
++
++    @Override
++    public ItemStack onItemRightClick(ItemStack stack, World world, EntityPlayer player) {
++        // 打开仓库的逻辑将在 Task 12(按键/网络)接线; 此处先占位不报错。
++        return stack;
++    }
++}
+diff --git a/src/main/java/com/portablestorage/item/ItemStackCodec.java b/src/main/java/com/portablestorage/item/ItemStackCodec.java
+new file mode 100644
+index 0000000..8e6d66a
+--- /dev/null
++++ b/src/main/java/com/portablestorage/item/ItemStackCodec.java
+@@ -0,0 +1,81 @@
++package com.portablestorage.item;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++
++import net.minecraft.item.Item;
++import net.minecraft.item.ItemStack;
++import net.minecraft.nbt.CompressedStreamTools;
++import net.minecraft.nbt.NBTTagCompound;
++import net.minecraft.nbt.NBTTagList;
++
++import com.portablestorage.core.PinyinUtil;
++import com.portablestorage.core.StoredItem;
++
++public final class ItemStackCodec {
++
++    private ItemStackCodec() {}
++
++    public static StoredItem encode(ItemStack st) {
++        String itemName = (String) Item.itemRegistry.getNameForObject(st.getItem());
++        int meta = st.getItemDamage();
++
++        byte[] nbt = null;
++        if (st.hasTagCompound()) {
++            try {
++                ByteArrayOutputStream baos = new ByteArrayOutputStream();
++                CompressedStreamTools.writeCompressed(st.getTagCompound(), baos);
++                nbt = baos.toByteArray();
++            } catch (IOException e) {
++                throw new RuntimeException(e);
++            }
++        }
++
++        String nbtHash = StoredItem.hashNbt(nbt);
++        long count = st.stackSize;
++
++        String displayName = st.getDisplayName();
++        if (displayName == null) displayName = "";
++        String nameLower = displayName.toLowerCase();
++
++        String lore = "";
++        if (st.hasTagCompound()) {
++            NBTTagCompound tag = st.getTagCompound();
++            if (tag.hasKey("display", 10)) {
++                NBTTagCompound display = tag.getCompoundTag("display");
++                if (display.hasKey("Lore", 9)) {
++                    NBTTagList list = display.getTagList("Lore", 8);
++                    StringBuilder sb = new StringBuilder();
++                    for (int i = 0; i < list.tagCount(); i++) {
++                        if (i > 0) sb.append(' ');
++                        sb.append(list.getStringTagAt(i));
++                    }
++                    lore = sb.toString()
++                        .toLowerCase();
++                }
++            }
++        }
++
++        String pinyin = PinyinUtil.fullPinyin(displayName);
++        String pinyinInitials = PinyinUtil.initials(displayName);
++
++        return new StoredItem(itemName, meta, nbt, nbtHash, count, nameLower, lore, pinyin, pinyinInitials);
++    }
++
++    public static ItemStack decode(StoredItem si, int amount) {
++        if (si.getNbt() != null) {
++            try {
++                NBTTagCompound tag = CompressedStreamTools.readCompressed(new ByteArrayInputStream(si.getNbt()));
++                ItemStack st = ItemStack.loadItemStackFromNBT(tag);
++                if (st != null) {
++                    st.stackSize = amount;
++                    return st;
++                }
++            } catch (IOException e) {
++                throw new RuntimeException(e);
++            }
++        }
++        return new ItemStack((Item) Item.itemRegistry.getObject(si.getItem()), amount, si.getMeta());
++    }
++}
+diff --git a/src/main/resources/assets/portablestorage/lang/en_US.lang b/src/main/resources/assets/portablestorage/lang/en_US.lang
+new file mode 100644
+index 0000000..176dd33
+--- /dev/null
++++ b/src/main/resources/assets/portablestorage/lang/en_US.lang
+@@ -0,0 +1 @@
++item.portablestorage_terminal.name=Portable Storage Terminal
+diff --git a/src/main/resources/assets/portablestorage/lang/zh_CN.lang b/src/main/resources/assets/portablestorage/lang/zh_CN.lang
+new file mode 100644
+index 0000000..c989d68
+--- /dev/null
++++ b/src/main/resources/assets/portablestorage/lang/zh_CN.lang
+@@ -0,0 +1 @@
++item.portablestorage_terminal.name=随身仓库终端

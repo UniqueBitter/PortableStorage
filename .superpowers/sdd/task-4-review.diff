@@ -1,0 +1,203 @@
+### commits
+cfd7a00 feat: StorageDb + StorageDao upsert/批量 (TDD, 真实sqlite)
+
+### diff
+diff --git a/src/main/java/com/portablestorage/db/StorageDao.java b/src/main/java/com/portablestorage/db/StorageDao.java
+new file mode 100644
+index 0000000..f2acb22
+--- /dev/null
++++ b/src/main/java/com/portablestorage/db/StorageDao.java
+@@ -0,0 +1,85 @@
++package com.portablestorage.db;
++
++import java.sql.*;
++import java.util.List;
++
++import com.portablestorage.core.StoredItem;
++
++public class StorageDao {
++
++    private final StorageDb db;
++
++    public StorageDao(StorageDb db) {
++        this.db = db;
++    }
++
++    public void upsert(String player, StoredItem it) {
++        String sql = "INSERT INTO entries(player,item,meta,nbt,nbt_hash,count,name,lore,pinyin,pinyin_in) "
++            + "VALUES(?,?,?,?,?,?,?,?,?,?) "
++            + "ON CONFLICT(player,item,meta,nbt_hash) DO UPDATE SET count=count+excluded.count";
++        try (PreparedStatement ps = db.getConnection()
++            .prepareStatement(sql)) {
++            bind(ps, player, it);
++            ps.executeUpdate();
++        } catch (SQLException e) {
++            throw new RuntimeException(e);
++        }
++    }
++
++    public void upsertBatch(String player, List<StoredItem> items) {
++        String sql = "INSERT INTO entries(player,item,meta,nbt,nbt_hash,count,name,lore,pinyin,pinyin_in) "
++            + "VALUES(?,?,?,?,?,?,?,?,?,?) "
++            + "ON CONFLICT(player,item,meta,nbt_hash) DO UPDATE SET count=count+excluded.count";
++        Connection c = db.getConnection();
++        try {
++            c.setAutoCommit(false);
++            try (PreparedStatement ps = c.prepareStatement(sql)) {
++                for (StoredItem it : items) {
++                    bind(ps, player, it);
++                    ps.addBatch();
++                }
++                ps.executeBatch();
++            }
++            c.commit();
++        } catch (SQLException e) {
++            try {
++                c.rollback();
++            } catch (SQLException ignored) {}
++            throw new RuntimeException(e);
++        } finally {
++            try {
++                c.setAutoCommit(true);
++            } catch (SQLException ignored) {}
++        }
++    }
++
++    public long countOf(String player, String item, int meta, String nbtHash) {
++        String sql = "SELECT count FROM entries WHERE player=? AND item=? AND meta=? AND nbt_hash=?";
++        try (PreparedStatement ps = db.getConnection()
++            .prepareStatement(sql)) {
++            ps.setString(1, player);
++            ps.setString(2, item);
++            ps.setInt(3, meta);
++            ps.setString(4, nbtHash);
++            try (ResultSet rs = ps.executeQuery()) {
++                return rs.next() ? rs.getLong(1) : 0L;
++            }
++        } catch (SQLException e) {
++            throw new RuntimeException(e);
++        }
++    }
++
++    private void bind(PreparedStatement ps, String player, StoredItem it) throws SQLException {
++        ps.setString(1, player);
++        ps.setString(2, it.getItem());
++        ps.setInt(3, it.getMeta());
++        if (it.getNbt() == null) ps.setNull(4, Types.BLOB);
++        else ps.setBytes(4, it.getNbt());
++        ps.setString(5, it.getNbtHash());
++        ps.setLong(6, it.getCount());
++        ps.setString(7, it.getName());
++        ps.setString(8, it.getLore());
++        ps.setString(9, it.getPinyin());
++        ps.setString(10, it.getPinyinInitials());
++    }
++}
+diff --git a/src/main/java/com/portablestorage/db/StorageDb.java b/src/main/java/com/portablestorage/db/StorageDb.java
+new file mode 100644
+index 0000000..922cd5b
+--- /dev/null
++++ b/src/main/java/com/portablestorage/db/StorageDb.java
+@@ -0,0 +1,40 @@
++package com.portablestorage.db;
++
++import java.io.File;
++import java.sql.*;
++
++public class StorageDb {
++
++    private final Connection conn;
++
++    public StorageDb(File dbFile) {
++        try {
++            Class.forName("org.sqlite.JDBC");
++            if (dbFile.getParentFile() != null) dbFile.getParentFile()
++                .mkdirs();
++            conn = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
++            try (Statement s = conn.createStatement()) {
++                s.execute("PRAGMA journal_mode=WAL");
++                s.execute(
++                    "CREATE TABLE IF NOT EXISTS entries ("
++                        + "id INTEGER PRIMARY KEY AUTOINCREMENT, player TEXT NOT NULL, item TEXT NOT NULL,"
++                        + "meta INTEGER NOT NULL, nbt BLOB, nbt_hash TEXT NOT NULL, count INTEGER NOT NULL,"
++                        + "name TEXT, lore TEXT, pinyin TEXT, pinyin_in TEXT,"
++                        + "UNIQUE(player,item,meta,nbt_hash))");
++                s.execute("CREATE INDEX IF NOT EXISTS idx_player_name ON entries(player,name)");
++            }
++        } catch (Exception e) {
++            throw new RuntimeException("open db failed", e);
++        }
++    }
++
++    public Connection getConnection() {
++        return conn;
++    }
++
++    public void close() {
++        try {
++            conn.close();
++        } catch (SQLException ignored) {}
++    }
++}
+diff --git a/src/test/java/com/portablestorage/db/StorageDaoTest.java b/src/test/java/com/portablestorage/db/StorageDaoTest.java
+new file mode 100644
+index 0000000..759f976
+--- /dev/null
++++ b/src/test/java/com/portablestorage/db/StorageDaoTest.java
+@@ -0,0 +1,56 @@
++package com.portablestorage.db;
++
++import static org.junit.Assert.*;
++
++import java.io.File;
++import java.util.*;
++
++import org.junit.*;
++
++import com.portablestorage.core.StoredItem;
++
++public class StorageDaoTest {
++
++    File f;
++    StorageDb db;
++    StorageDao dao;
++
++    @Before
++    public void setup() throws Exception {
++        f = File.createTempFile("ps-test", ".db");
++        f.delete();
++        db = new StorageDb(f);
++        dao = new StorageDao(db);
++    }
++
++    @After
++    public void teardown() {
++        db.close();
++        f.delete();
++    }
++
++    private StoredItem di(long n) {
++        return new StoredItem("minecraft:diamond", 0, null, "-", n, "钻石", "", "zuanshi", "zs");
++    }
++
++    @Test
++    public void upsertMergesSameKey() {
++        dao.upsert("p1", di(5));
++        dao.upsert("p1", di(3));
++        assertEquals(8, dao.countOf("p1", "minecraft:diamond", 0, "-"));
++    }
++
++    @Test
++    public void differentNbtHashAreSeparate() {
++        dao.upsert("p1", new StoredItem("minecraft:sword", 0, new byte[] { 1 }, "aaa", 1, "剑", "", "jian", "j"));
++        dao.upsert("p1", new StoredItem("minecraft:sword", 0, new byte[] { 2 }, "bbb", 1, "剑", "", "jian", "j"));
++        assertEquals(1, dao.countOf("p1", "minecraft:sword", 0, "aaa"));
++        assertEquals(1, dao.countOf("p1", "minecraft:sword", 0, "bbb"));
++    }
++
++    @Test
++    public void batchInsert() {
++        dao.upsertBatch("p1", Arrays.asList(di(2), di(2), di(2)));
++        assertEquals(6, dao.countOf("p1", "minecraft:diamond", 0, "-"));
++    }
++}

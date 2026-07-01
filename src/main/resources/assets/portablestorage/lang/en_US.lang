@@ -1,0 +1,5 @@
+item.portablestorage_terminal.name=Portable Storage Terminal
+key.portablestorage.open=Open Portable Storage
+key.portablestorage.magnet=Toggle Magnet
+key.categories.portablestorage=Portable Storage
+item.portablestorage_cap_voucher.name=Storage Slot Expander
