@@ -33,7 +33,6 @@ public class GuiPortableStorage extends GuiContainer {
     private static final int GRID_X = 8;
     private static final int GRID_Y = 20;
     private static final int BTN_W = 11;
-    private static final int BTN_H = 11;
     private static final int BTN_GAP = 13; // 相邻按钮的纵向间距(按钮高 + 2px 缝)
 
     private static volatile PageResultPacket pending;
@@ -59,10 +58,15 @@ public class GuiPortableStorage extends GuiContainer {
     private int curTab = -1; // -1=全部, 0=未分类, >=1=自定义
     private int[] tabIds = new int[0];
     private String[] tabNames = new String[0];
+    private int[] tabOrderCache = { -1, 0 }; // 标签显示顺序, 仅收包(tabIds 变化)时重建, 避免每帧分配数组
+    private String[] countLabels = new String[0]; // 每格数量的缩写文本, 收包时算好, 避免每帧 String.format
     private GuiTextField renameField; // 右键标签时的行内改名输入框
     private int renamingTab = 0; // 0=未在改名; >=1=正在改名的标签id
     private int renameX, renameY;
     private static final int RENAME_W = 140, RENAME_H = 20;
+    private IconButton stackBtn;
+    // 收纳模式: false=全部收纳(非锁定的都收), true=仅补充仓库已有种类(泰拉瑞亚式, 不收快捷栏)。右键按钮切换。
+    private boolean stackMode = false;
     private IconButton sortByBtn;
     private IconButton dirBtn;
     private IconButton searchBtn;
@@ -94,11 +98,18 @@ public class GuiPortableStorage extends GuiContainer {
         int bx = this.guiLeft - BTN_W - 2;
         this.buttonList.clear();
         int by = this.guiTop + 4;
-        this.buttonList.add(new IconButton(1, bx, by, BTN_W, 0)); // 收纳
+        this.stackBtn = new IconButton(1, bx, by, BTN_W, 0);
+        this.stackBtn.tip = () -> (this.stackMode ? "§a泰拉模式" : "§c全部收纳") + "\n§7左键收纳,右键切换模式";
         this.sortByBtn = new IconButton(2, bx, by + BTN_GAP, BTN_W, sortByIcon());
+        this.sortByBtn.tip = () -> "排序: "
+            + (this.sortBy == 1 ? "数量" : this.sortBy == 2 ? "类型" : this.sortBy == 3 ? "时间" : "名字");
         this.dirBtn = new IconButton(3, bx, by + BTN_GAP * 2, BTN_W, dirIcon());
+        this.dirBtn.tip = () -> this.sortDesc ? "降序" : "升序";
         this.searchBtn = new IconButton(4, bx, by + BTN_GAP * 3, BTN_W, searchIcon());
+        this.searchBtn.tip = () -> Config.autoFocusSearch ? "自动聚焦:开" : "自动聚焦:关";
         this.restockBtn = new IconButton(5, bx, by + BTN_GAP * 4, BTN_W, restockIcon());
+        this.restockBtn.tip = () -> this.restockOn ? "自动补货: 开(只补中键锁定的格)" : "自动补货: 关";
+        this.buttonList.add(this.stackBtn);
         this.buttonList.add(this.sortByBtn);
         this.buttonList.add(this.dirBtn);
         this.buttonList.add(this.searchBtn);
@@ -133,6 +144,10 @@ public class GuiPortableStorage extends GuiContainer {
     }
 
     private void updateButtons() {
+        if (this.stackBtn != null) {
+            // 全部收纳=原色白; 仅补充已有=绿色(呼应"仓库已有的绿字物品才收")。
+            this.stackBtn.tint = this.stackMode ? 0xFF6CE06C : 0xFFFFFFFF;
+        }
         if (this.sortByBtn != null) this.sortByBtn.icon = sortByIcon();
         if (this.dirBtn != null) this.dirBtn.icon = dirIcon();
         if (this.searchBtn != null) this.searchBtn.icon = searchIcon();
@@ -175,14 +190,19 @@ public class GuiPortableStorage extends GuiContainer {
             this.curTab = p.curTab;
             this.tabIds = p.tabIds != null ? p.tabIds : new int[0];
             this.tabNames = p.tabNames != null ? p.tabNames : new String[0];
+            rebuildTabOrder();
             if (!this.draggingBar) this.rowOffset = p.offset / COLS; // 拖动中不让异步包回弹滑块
             this.sortBy = p.sort / 2;
             this.sortDesc = (p.sort % 2 == 1);
             this.sortAdopted = true;
             updateButtons();
-            // 一次性把本页物品栈构建好并缓存(含 NBT 解压), 之后每帧直接取用。
+            // 一次性把本页物品栈 + 数量缩写构建好并缓存(含 NBT 解压), 之后每帧直接取用。
             this.stackCache = new ItemStack[this.ids.length];
-            for (int i = 0; i < this.stackCache.length; i++) this.stackCache[i] = buildStackRaw(i);
+            this.countLabels = new String[this.ids.length];
+            for (int i = 0; i < this.stackCache.length; i++) {
+                this.stackCache[i] = buildStackRaw(i);
+                this.countLabels[i] = abbrev(this.counts[i]);
+            }
         }
         // 输入防抖后搜索(随输入更新结果)。
         if (this.lastTypeMs != 0 && System.currentTimeMillis() - this.lastTypeMs > 150) {
@@ -245,31 +265,20 @@ public class GuiPortableStorage extends GuiContainer {
             return;
         }
         // 右侧标签列点击
-        int tabHit = hitTabSlot(mx, my);
-        if (tabHit != Integer.MIN_VALUE) {
-            int[] order = tabOrder();
-            if (tabHit == order.length) { // + 新建
-                if (btn == 0) NetworkHandler.sendTabAction(0, 0, null);
-                return;
-            }
-            int tid = order[tabHit];
-            if (btn == 1 && isShiftKeyDown() && tid >= 1) { // Shift+右键 删除自定义标签
-                NetworkHandler.sendTabAction(1, tid, null);
-                return;
-            }
-            if (btn == 1 && tid >= 1) { // 右键 改名
-                beginRename(tid, tabHit);
-                return;
-            }
-            ItemStack held = this.mc.thePlayer.inventory.getItemStack();
-            if (btn == 0 && held != null) { // 左键+手持物品 → 归类到该标签
-                NetworkHandler.sendTabAction(3, tid, null);
-                return;
-            }
-            if (btn == 0) { // 左键空手 → 切换视图
-                this.curTab = tid;
-                requestWindow(0);
-            }
+        if (handleTabColumnClick(mx, my, btn)) return;
+        // 右键收纳按钮: 切换收纳模式(全部 ↔ 仅补充已有), 不执行。
+        if (btn == 1 && this.stackBtn != null
+            && this.stackBtn.visible
+            && inRect(
+                mx,
+                my,
+                this.stackBtn.xPosition,
+                this.stackBtn.yPosition,
+                this.stackBtn.width,
+                this.stackBtn.height)) {
+            this.stackMode = !this.stackMode;
+            updateButtons();
+            playClick();
             return;
         }
         // 中键: 锁定/解锁鼠标下的背包格(锁定的不被一键收纳收走)。
@@ -315,6 +324,40 @@ public class GuiPortableStorage extends GuiContainer {
         }
     }
 
+    // 处理右侧标签列的点击。命中并处理返回 true; 没点在标签列上返回 false(交给后续逻辑)。
+    private boolean handleTabColumnClick(int mx, int my, int btn) {
+        int tabHit = hitTabSlot(mx, my);
+        if (tabHit == Integer.MIN_VALUE) return false;
+        int[] order = tabOrder();
+        if (tabHit == order.length) { // + 新建
+            if (btn == 0) NetworkHandler.sendTabAction(0, 0, null);
+            return true;
+        }
+        int tid = order[tabHit];
+        if (btn == 1 && tid >= 1) { // 右键: Shift 删除自定义标签, 否则改名(全部/未分类无效)
+            if (isShiftKeyDown()) NetworkHandler.sendTabAction(1, tid, null);
+            else beginRename(tid, tabHit);
+            return true;
+        }
+        if (btn == 0) {
+            if (this.mc.thePlayer.inventory.getItemStack() != null) NetworkHandler.sendTabAction(3, tid, null); // 手持物品
+                                                                                                                // →
+                                                                                                                // 归类到该标签
+            else { // 空手 → 切换视图
+                this.curTab = tid;
+                requestWindow(0);
+            }
+        }
+        return true;
+    }
+
+    private void playClick() {
+        this.mc.getSoundHandler()
+            .playSound(
+                net.minecraft.client.audio.PositionedSoundRecord
+                    .func_147674_a(new net.minecraft.util.ResourceLocation("gui.button.press"), 1.0F));
+    }
+
     @Override
     protected void mouseClickMove(int mx, int my, int btn, long timeSinceClick) {
         super.mouseClickMove(mx, my, btn, timeSinceClick);
@@ -335,8 +378,7 @@ public class GuiPortableStorage extends GuiContainer {
     private boolean inScrollbar(int mx, int my) {
         int barX = this.guiLeft + GRID_X + COLS * SLOT + 3;
         int barTop = this.guiTop + GRID_Y;
-        int barH = VIS_ROWS * SLOT;
-        return mx >= barX && mx < barX + 10 && my >= barTop && my < barTop + barH;
+        return inRect(mx, my, barX, barTop, 10, VIS_ROWS * SLOT);
     }
 
     private void scrollToMouse(int my) {
@@ -357,12 +399,15 @@ public class GuiPortableStorage extends GuiContainer {
         }
     }
 
+    // 点 (mx,my) 是否落在矩形 [x, x+w) × [y, y+h) 内。各处命中判定共用。
+    private static boolean inRect(int mx, int my, int x, int y, int w, int h) {
+        return mx >= x && mx < x + w && my >= y && my < y + h;
+    }
+
     private Slot slotUnderMouse(int mx, int my) {
         for (int i = 0; i < this.inventorySlots.inventorySlots.size(); i++) {
             Slot s = (Slot) this.inventorySlots.inventorySlots.get(i);
-            int sx = this.guiLeft + s.xDisplayPosition;
-            int sy = this.guiTop + s.yDisplayPosition;
-            if (mx >= sx && mx < sx + 16 && my >= sy && my < sy + 16) return s;
+            if (inRect(mx, my, this.guiLeft + s.xDisplayPosition, this.guiTop + s.yDisplayPosition, 16, 16)) return s;
         }
         return null;
     }
@@ -370,7 +415,8 @@ public class GuiPortableStorage extends GuiContainer {
     @Override
     protected void actionPerformed(GuiButton b) {
         if (b.id == 1) {
-            NetworkHandler.sendAction(4, 0L, 0, this.keyword, this.rowOffset * COLS);
+            // 左键执行当前模式: 全部收纳(4) 或 仅补充已有(5)。右键切换模式在 mouseClicked 处理。
+            NetworkHandler.sendAction(this.stackMode ? 5 : 4, 0L, 0, this.keyword, this.rowOffset * COLS);
         } else if (b.id == 2) {
             this.sortBy = (this.sortBy + 1) % 4;
             updateButtons();
@@ -459,7 +505,7 @@ public class GuiPortableStorage extends GuiContainer {
                     stack,
                     x,
                     y,
-                    abbrev(this.counts[i]));
+                    this.countLabels[i]);
             }
         }
         RenderHelper.disableStandardItemLighting();
@@ -536,7 +582,7 @@ public class GuiPortableStorage extends GuiContainer {
         if (tip == null) tip = tabTip(mx, my);
         if (tip != null) {
             List<String> l = new ArrayList<String>();
-            l.add(tip);
+            for (String line : tip.split("\n")) l.add(line);
             drawHoveringText(l, mx, my, this.fontRendererObj);
         }
     }
@@ -550,12 +596,18 @@ public class GuiPortableStorage extends GuiContainer {
 
     private static final int MAX_TABS = 10;
 
-    // 显示顺序的标签 id: [全部(-1), 自定义...]。未分类(0)不再单列, 未归类物品在"全部"里可见。
+    // 显示顺序的标签 id: [全部(-1), 未分类(0), 自定义...]。未分类固定排在"全部"后面, 一直显示。
+    // 每帧多处调用, 返回缓存(收包时由 rebuildTabOrder 重建), 不再每次分配。
     private int[] tabOrder() {
-        int[] o = new int[1 + this.tabIds.length];
-        o[0] = -1;
-        for (int i = 0; i < this.tabIds.length; i++) o[1 + i] = this.tabIds[i];
-        return o;
+        return this.tabOrderCache;
+    }
+
+    private void rebuildTabOrder() {
+        int[] o = new int[2 + this.tabIds.length];
+        o[0] = -1; // 全部
+        o[1] = 0; // 未分类
+        for (int i = 0; i < this.tabIds.length; i++) o[2 + i] = this.tabIds[i];
+        this.tabOrderCache = o;
     }
 
     private boolean hasPlus() {
@@ -595,13 +647,10 @@ public class GuiPortableStorage extends GuiContainer {
     }
 
     private boolean inRenameBox(int mx, int my) {
-        return this.renamingTab >= 1 && mx >= this.renameX
-            && mx < this.renameX + RENAME_W
-            && my >= this.renameY
-            && my < this.renameY + RENAME_H;
+        return this.renamingTab >= 1 && inRect(mx, my, this.renameX, this.renameY, RENAME_W, RENAME_H);
     }
 
-    // 自定义标签按"位置"编号(1..N); 已改名(非默认"标签N")则显示名字首字。
+    // 自定义标签按位置编号(1..N), 已改名则显示名字首字。(全部/未分类走图标, 不经过这里)
     private String tabLabelAt(int orderIndex) {
         int tid = tabOrder()[orderIndex];
         for (int i = 0; i < this.tabIds.length; i++) {
@@ -610,7 +659,7 @@ public class GuiPortableStorage extends GuiContainer {
                 if (nm != null && !nm.isEmpty() && !nm.startsWith("标签")) return nm.substring(0, 1);
             }
         }
-        return String.valueOf(orderIndex); // orderIndex 即 1-based 位置
+        return String.valueOf(orderIndex - 1); // 顺序为[全部,未分类,自定义...], 自定义从 index 2 起 → 编号 index-1
     }
 
     private void drawTabs() {
@@ -619,14 +668,15 @@ public class GuiPortableStorage extends GuiContainer {
         int y = this.guiTop + 4;
         for (int i = 0; i < order.length; i++) {
             boolean active = order[i] == this.curTab;
-            if (order[i] == -1) drawTabButton(x, y, null, active, true); // 全部 = 网格图标
-            else drawTabButton(x, y, tabLabelAt(i), active, false);
+            int iconType = order[i] == -1 ? 1 : order[i] == 0 ? 2 : 0; // 1=全部(网格) 2=未分类(散点) 0=文字
+            drawTabButton(x, y, iconType == 0 ? tabLabelAt(i) : null, active, iconType);
             y += TAB_STEP;
         }
-        if (hasPlus()) drawTabButton(x, y, "+", false, false); // 满 10 个不再显示 +
+        if (hasPlus()) drawTabButton(x, y, "+", false, 0); // 满 10 个不再显示 +
     }
 
-    private void drawTabButton(int x, int y, String label, boolean active, boolean gridIcon) {
+    // iconType: 0=画文字 label; 1="全部"整齐网格; 2="未分类"散落小点。
+    private void drawTabButton(int x, int y, String label, boolean active, int iconType) {
         int w = TAB_SZ, h = TAB_SZ;
         int fill = active ? 0xFFE0CC66 : 0xFF8B8B8B; // 激活=暖金
         drawRect(x, y, x + w, y + h, fill);
@@ -635,11 +685,16 @@ public class GuiPortableStorage extends GuiContainer {
         drawRect(x, y + h - 1, x + w, y + h, 0xFF373737);
         drawRect(x + w - 1, y, x + w, y + h, 0xFF373737);
         int fg = active ? 0xFF3A2A00 : 0xFF303030;
-        if (gridIcon) { // "全部" = 2x2 小方格(适配 11px 按钮)
+        if (iconType == 1) { // "全部" = 2x2 小方格(适配 11px 按钮)
             drawRect(x + 2, y + 2, x + 5, y + 5, fg);
             drawRect(x + 6, y + 2, x + 9, y + 5, fg);
             drawRect(x + 2, y + 6, x + 5, y + 9, fg);
             drawRect(x + 6, y + 6, x + 9, y + 9, fg);
+        } else if (iconType == 2) { // "未分类" = 散落的小点(零散、未归类, 与整齐网格对比)
+            drawRect(x + 2, y + 2, x + 4, y + 4, fg);
+            drawRect(x + 6, y + 3, x + 8, y + 5, fg);
+            drawRect(x + 3, y + 6, x + 5, y + 8, fg);
+            drawRect(x + 7, y + 6, x + 9, y + 8, fg);
         } else {
             int tw = this.fontRendererObj.getStringWidth(label);
             this.fontRendererObj.drawString(label, x + (w - tw) / 2 + 1, y + 2, fg & 0xFFFFFF);
@@ -666,6 +721,7 @@ public class GuiPortableStorage extends GuiContainer {
         if (hit == order.length) return "新建标签";
         int tid = order[hit];
         if (tid == -1) return "全部";
+        if (tid == 0) return "未分类";
         // 改过名 → 显示名字; 否则按位置显示"标签 N"(和按钮编号一致)。
         for (int i = 0; i < this.tabIds.length; i++) {
             if (this.tabIds[i] == tid) {
@@ -673,31 +729,18 @@ public class GuiPortableStorage extends GuiContainer {
                 if (nm != null && !nm.isEmpty() && !nm.startsWith("标签")) return nm;
             }
         }
-        return "标签 " + hit;
+        return "标签 " + (hit - 1); // 顺序[全部,未分类,自定义...], 自定义从 index 2 起 → 编号 hit-1
     }
 
-    // 左侧悬浮按钮的提示文字
+    // 左侧悬浮按钮的提示文字: 找到鼠标下、带 tip 的按钮直接返回其提示(与按钮顺序解耦)。
     private String leftButtonTip(int mx, int my) {
-        int bx = this.guiLeft - BTN_W - 2;
-        if (mx < bx || mx >= bx + BTN_W) return null;
-        int rel = my - (this.guiTop + 4);
-        if (rel < 0) return null;
-        int idx = rel / BTN_GAP;
-        if (rel % BTN_GAP > BTN_H) return null;
-        switch (idx) {
-            case 0:
-                return "一键收纳(中键锁定的格不收)";
-            case 1:
-                return "排序: " + (this.sortBy == 1 ? "数量" : this.sortBy == 2 ? "类型" : this.sortBy == 3 ? "时间" : "名字");
-            case 2:
-                return this.sortDesc ? "降序" : "升序";
-            case 3:
-                return Config.autoFocusSearch ? "打开即可输入搜索(点此关闭自动聚焦)" : "需点搜索框后输入(点此开启自动聚焦)";
-            case 4:
-                return this.restockOn ? "自动补货: 开(只补中键锁定的格, 减少即从仓库补满)" : "自动补货: 关";
-            default:
-                return null;
+        for (Object o : this.buttonList) {
+            if (!(o instanceof IconButton)) continue;
+            IconButton b = (IconButton) o;
+            if (b.tip != null && b.visible && inRect(mx, my, b.xPosition, b.yPosition, b.width, b.height))
+                return b.tip.get();
         }
+        return null;
     }
 
     // 每帧多次调用(渲染 + 悬停tooltip), 直接返回收到数据包时构建好的缓存, 避免每帧重复解压 NBT。

@@ -334,8 +334,11 @@ public final class StorageService {
             case 3: // DEPOSIT_CURSOR
                 depositCursor(p, dao, uuid);
                 break;
-            case 4: // QUICK_DEPOSIT_ALL
+            case 4: // QUICK_DEPOSIT_ALL -> 全部收纳(非锁定的都收)
                 quickDepositAll(p, dao, uuid);
+                break;
+            case 5: // QUICK_STACK -> 仅补充仓库已有种类(泰拉瑞亚式)
+                quickStack(p, dao, uuid);
                 break;
             default:
                 break;
@@ -424,5 +427,34 @@ public final class StorageService {
         if (full) warnFull(p);
         p.inventoryContainer.detectAndSendChanges();
         if (p.openContainer != null) p.openContainer.detectAndSendChanges();
+    }
+
+    // 泰拉瑞亚式"快速堆叠"(按键入口, 不依赖界面): 委托给内部实现后手动刷新界面。
+    public static void quickStack(EntityPlayerMP p) {
+        quickStack(p, StorageProvider.dao(), StorageProvider.keyFor(p));
+        refresh(p); // 界面开着则刷新(界面动作路径由 sendPage 负责刷新, 这里给按键路径补一次)
+    }
+
+    // 只把背包(9-35, 不含快捷栏)里"仓库已有种类"的物品存入(补充已有堆叠);
+    // 仓库没有的种类、快捷栏、锁定格、终端都不动。不占新容量, 合并进原有行(保持其所在标签)。
+    private static void quickStack(EntityPlayerMP p, StorageDao dao, String uuid) {
+        long locked = getLockedSlots(p);
+        ItemStack[] main = p.inventory.mainInventory;
+        int moved = 0;
+        for (int i = 9; i < main.length; i++) { // 跳过快捷栏 0-8
+            ItemStack st = main[i];
+            if (st == null) continue;
+            if (st.getItem() instanceof ItemPortableTerminal) continue;
+            if ((locked & (1L << i)) != 0) continue; // 锁定格不收
+            StoredItem enc = ItemStackCodec.encode(st, p);
+            if (dao.entryId(uuid, enc.getItem(), enc.getMeta(), enc.getNbtHash()) < 0) continue; // 仓库没这种 → 跳过
+            dao.upsert(uuid, enc); // 已存在 → 合并累加(保持原标签, 无需容量检查)
+            main[i] = null;
+            moved++;
+        }
+        if (moved > 0) {
+            p.inventoryContainer.detectAndSendChanges();
+            if (p.openContainer != null) p.openContainer.detectAndSendChanges();
+        }
     }
 }

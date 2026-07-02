@@ -12,6 +12,8 @@ public class IconButton extends GuiButton {
     private static final ResourceLocation ICONS = new ResourceLocation("portablestorage", "textures/gui/icons.png");
 
     public int icon;
+    public int tint = 0xFFFFFFFF; // 图标着色(ARGB), 默认白=原色; 用于切换模式时给按钮上色
+    public java.util.function.Supplier<String> tip; // 悬停提示(惰性求值, 每次读实时状态; 支持 \n 多行)
 
     public IconButton(int id, int x, int y, int size, int icon) {
         super(id, x, y, size, size, "");
@@ -40,7 +42,11 @@ public class IconButton extends GuiButton {
         int dy = y + (h - iconSize) / 2;
         mc.getTextureManager()
             .bindTexture(ICONS);
-        GL11.glColor4f(1F, 1F, 1F, 1F);
+        GL11.glColor4f(
+            ((this.tint >> 16) & 0xFF) / 255F,
+            ((this.tint >> 8) & 0xFF) / 255F,
+            (this.tint & 0xFF) / 255F,
+            ((this.tint >> 24) & 0xFF) / 255F);
         GL11.glPushMatrix();
         GL11.glTranslatef(dx, dy, 0F);
         GL11.glScalef(sc, sc, 1F);
