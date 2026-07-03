@@ -17,6 +17,9 @@ public final class Config {
     public static int defaultCapacity = 0;
     // 正常途径(扩容券)能把容量提升到的上限。指令 /storage cap 可突破此上限。
     public static int maxCapacity = 999;
+    // 无限容量(通用大背包版, 默认开): 不再限制能存多少"种"物品, 界面也不显示容量上限。
+    // 想恢复 RPG 的容量门槛(逐步解锁), 在 config 里把它设为 false。
+    public static boolean unlimitedStorage = true;
     // 栏位拓展器进入背包时是否自动使用(默认开)。关闭则改为右键手动使用。
     public static boolean autoConsumeVoucher = true;
     // 打开随身仓库界面时是否自动聚焦搜索框(可立即打字)。客户端偏好, 持久化到 config 文件(含重启)。
@@ -42,6 +45,8 @@ public final class Config {
         defaultCapacity = c
             .getInt("defaultCapacity", "storage", 0, 0, 100000, "随身仓库起始容量(能存多少种物品), 默认0=从零解锁; 老存档会取 max(本值, 现有种类数)");
         maxCapacity = c.getInt("maxCapacity", "storage", 999, 1, 100000, "扩容券等正常途径能提升到的容量上限; 指令可突破");
+        unlimitedStorage = c
+            .getBoolean("unlimitedStorage", "storage", true, "无限容量: 不限制能存多少种物品(通用大背包); false=恢复 RPG 容量门槛");
         autoConsumeVoucher = c.getBoolean(KEY_AUTOVOUCHER, CAT_STORAGE, true, CMT_AUTOVOUCHER);
         autoFocusSearch = c.getBoolean(KEY_AUTOFOCUS, CAT_CLIENT, true, CMT_AUTOFOCUS);
         if (c.hasChanged()) {

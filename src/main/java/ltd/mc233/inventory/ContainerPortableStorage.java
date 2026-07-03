@@ -30,6 +30,13 @@ public class ContainerPortableStorage extends Container {
         return true;
     }
 
+    @Override
+    public void onContainerClosed(EntityPlayer p) {
+        super.onContainerClosed(p);
+        // 关闭随身仓库时同步锁定格: 补满 + 多余存入
+        if (!p.worldObj.isRemote && p instanceof EntityPlayerMP) StorageService.syncLockedSlots((EntityPlayerMP) p);
+    }
+
     // Shift+左键背包里的物品 → 存入仓库(取出靠仓库网格点击; 此处只处理"存入背包物品")。
     @Override
     public ItemStack transferStackInSlot(EntityPlayer p, int index) {

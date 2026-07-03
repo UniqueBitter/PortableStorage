@@ -36,7 +36,8 @@ public class OpenStoragePacket implements IMessage {
                 (int) p.posX,
                 (int) p.posY,
                 (int) p.posZ);
-            StorageService.sendPage(p, "", 0, -1, -1); // 打开默认在"全部"视图
+            StorageService.syncLockedSlots(p); // 打开时同步锁定格: 补满 + 多余存入
+            StorageService.sendPage(p, "", 0, -1, -2); // 打开时回到上次记忆的标签(-2=用持久化的当前标签)
             return null;
         }
     }

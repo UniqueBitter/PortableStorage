@@ -18,10 +18,9 @@ public final class StorageService {
 
     public static final int WINDOW = 90;
 
-    // 记录每个玩家当前的搜索词/偏移(供 shift存入等操作刷新)。排序则持久化到玩家存档(见下)。
+    // 记录每个玩家当前的搜索词/偏移(供 shift存入等操作刷新)。当前标签与排序都持久化到玩家存档(见下)。
     private static final java.util.Map<String, String> LAST_KW = new java.util.concurrent.ConcurrentHashMap<String, String>();
     private static final java.util.Map<String, Integer> LAST_OFF = new java.util.concurrent.ConcurrentHashMap<String, Integer>();
-    private static final java.util.Map<String, Integer> LAST_TAB = new java.util.concurrent.ConcurrentHashMap<String, Integer>();
 
     private StorageService() {}
 
@@ -135,8 +134,10 @@ public final class StorageService {
     // 统一的存入入口: it 含数量。已存在的种类 → 直接累加(永远允许); 新种类 → 需 used<capacity, 否则拒绝。
     // 返回 true=已存入; false=容量已满(新种类放不下)。调用方负责在 false 时把物品留住、给反馈。
     public static boolean deposit(EntityPlayer p, StorageDao dao, String uuid, StoredItem it) {
-        boolean exists = dao.entryId(uuid, it.getItem(), it.getMeta(), it.getNbtHash()) >= 0;
-        if (!exists && dao.countTypes(uuid) >= getCapacity(p)) return false;
+        if (!Config.unlimitedStorage) { // 无限容量版跳过种类上限检查
+            boolean exists = dao.entryId(uuid, it.getItem(), it.getMeta(), it.getNbtHash()) >= 0;
+            if (!exists && dao.countTypes(uuid) >= getCapacity(p)) return false;
+        }
         dao.upsert(uuid, it);
         return true;
     }
@@ -147,6 +148,66 @@ public final class StorageService {
         int t = currentTab(p);
         if (t >= 1) dao.setTab(uuid, it.getItem(), it.getMeta(), it.getNbtHash(), t);
         return true;
+    }
+
+    // 锁定格自动同步(打开/关闭随身仓库时各调一次):
+    // 1) 背包"非锁定格"里与锁定物品同种的 → 全部存入仓库(该物品只保留在锁定格 + 仓库);
+    // 2) 每个非空锁定格 → 从仓库补满到该物品的满堆叠。
+    // 空的锁定格不处理(无从得知该放什么); 终端不动。
+    public static void syncLockedSlots(EntityPlayerMP p) {
+        long locked = getLockedSlots(p);
+        if (locked == 0) return;
+        ItemStack[] main = p.inventory.mainInventory;
+        StorageDao dao = StorageProvider.dao();
+        String uuid = StorageProvider.keyFor(p);
+
+        // 收集锁定格里的物品种类
+        java.util.Set<String> lockedKeys = new java.util.HashSet<String>();
+        for (int i = 0; i < main.length && i < 64; i++) {
+            if ((locked & (1L << i)) == 0) continue;
+            ItemStack st = main[i];
+            if (st == null || st.getItem() instanceof ItemPortableTerminal) continue;
+            lockedKeys.add(itemKey(ItemStackCodec.encode(st, p)));
+        }
+        if (lockedKeys.isEmpty()) return;
+
+        boolean changed = false;
+        // 1) 非锁定格里的同种物品 → 存入仓库(存不下则留在背包, 不丢)
+        for (int i = 0; i < main.length && i < 64; i++) {
+            if ((locked & (1L << i)) != 0) continue;
+            ItemStack st = main[i];
+            if (st == null || st.getItem() instanceof ItemPortableTerminal) continue;
+            StoredItem enc = ItemStackCodec.encode(st, p);
+            if (!lockedKeys.contains(itemKey(enc))) continue;
+            if (deposit(p, dao, uuid, enc)) {
+                main[i] = null;
+                changed = true;
+            }
+        }
+        // 2) 每个锁定格补满到该物品的满堆叠(仓库有多少补多少)
+        for (int i = 0; i < main.length && i < 64; i++) {
+            if ((locked & (1L << i)) == 0) continue;
+            ItemStack st = main[i];
+            if (st == null || st.getItem() instanceof ItemPortableTerminal) continue;
+            int need = st.getMaxStackSize() - st.stackSize;
+            if (need <= 0) continue;
+            StoredItem enc = ItemStackCodec.encode(st, p);
+            long id = dao.entryId(uuid, enc.getItem(), enc.getMeta(), enc.getNbtHash());
+            if (id < 0) continue; // 仓库没这种 → 无从补
+            long took = dao.extract(uuid, id, need);
+            if (took > 0) {
+                st.stackSize += (int) took;
+                changed = true;
+            }
+        }
+        if (changed) {
+            p.inventoryContainer.detectAndSendChanges();
+            if (p.openContainer != null) p.openContainer.detectAndSendChanges();
+        }
+    }
+
+    private static String itemKey(StoredItem it) {
+        return it.getItem() + "|" + it.getMeta() + "|" + it.getNbtHash();
     }
 
     // "仓库已满"提示(节流由调用方控制, 一次操作只提示一次)。
@@ -166,9 +227,10 @@ public final class StorageService {
     // sortArg: -1 表示"用玩家记忆的排序"; 0..5 表示显式设置(并记忆)。tabId: -1=全部,0=未分类,>=1=自定义。
     public static void sendPage(EntityPlayerMP p, String keyword, int offset, int sortArg, int tabId) {
         String puuid = StorageProvider.keyFor(p);
+        if (tabId == -2) tabId = currentTab(p); // -2 = 用持久化的当前标签(如刚打开界面时)
         LAST_KW.put(puuid, keyword == null ? "" : keyword);
         LAST_OFF.put(puuid, offset);
-        LAST_TAB.put(puuid, tabId);
+        persist(p).setInteger("psLastTab", tabId); // 当前标签唯一记忆点: 持久化到存档, 重开界面/重启/重连都从这里读
         int sort;
         if (sortArg < 0) {
             sort = getSortPref(p);
@@ -200,7 +262,7 @@ public final class StorageService {
             getLockedSlots(p),
             isRestockOn(p),
             (int) dao.countTypes(puuid),
-            getCapacity(p),
+            Config.unlimitedStorage ? -1 : getCapacity(p), // -1 = 无限容量(界面不显示上限)
             ids,
             items,
             metas,
@@ -221,8 +283,17 @@ public final class StorageService {
 
     // ===== 标签 (小房间) =====
     private static int currentTab(EntityPlayerMP p) {
-        Integer t = LAST_TAB.get(StorageProvider.keyFor(p));
-        return t == null ? -1 : t;
+        NBTTagCompound ps = persist(p);
+        int tab = ps.hasKey("psLastTab") ? ps.getInteger("psLastTab") : -1; // 无记录默认"全部"
+        if (tab >= 1 && !tabExists(p, tab)) tab = -1; // 记忆的自定义标签已被删 → 回到全部
+        return tab;
+    }
+
+    private static boolean tabExists(EntityPlayerMP p, int tabId) {
+        net.minecraft.nbt.NBTTagList list = tabList(p);
+        for (int i = 0; i < list.tagCount(); i++) if (list.getCompoundTagAt(i)
+            .getInteger("Id") == tabId) return true;
+        return false;
     }
 
     private static NBTTagCompound persist(EntityPlayerMP p) {
@@ -241,7 +312,7 @@ public final class StorageService {
         int next = ps.getInteger("psNextTab");
         if (next < 1) next = 1;
         net.minecraft.nbt.NBTTagList list = ps.getTagList("psTabs", 10);
-        if (list.tagCount() >= 10) return; // 最多 10 个自定义标签
+        if (list.tagCount() >= 15) return; // 最多 15 个自定义标签
         NBTTagCompound t = new NBTTagCompound();
         t.setInteger("Id", next);
         t.setString("Name", name == null ? "" : name.trim()); // 默认空名 → 界面按位置编号显示
@@ -262,7 +333,7 @@ public final class StorageService {
         ps.setTag("psTabs", nl);
         StorageProvider.dao()
             .clearTab(StorageProvider.keyFor(p), tabId); // 物品移回未分类
-        if (currentTab(p) == tabId) LAST_TAB.put(StorageProvider.keyFor(p), -1); // 当前在被删页 → 切回全部
+        if (currentTab(p) == tabId) persist(p).setInteger("psLastTab", -1); // 当前在被删页 → 切回全部
     }
 
     public static void renameTab(EntityPlayerMP p, int tabId, String name) {
