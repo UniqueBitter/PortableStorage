@@ -17,12 +17,11 @@ public class PsMixinPlugin implements IMixinConfigPlugin {
     private static final boolean CNPC_PRESENT = detect();
 
     private static boolean detect() {
-        try {
-            Class.forName("noppes.npcs.NoppesUtilPlayer", false, PsMixinPlugin.class.getClassLoader());
-            return true;
-        } catch (Throwable t) {
-            return false;
-        }
+        // 关键: 绝不能用 Class.forName 加载 noppes 类! 本插件在 mixin/coremod 阶段运行, 早于 CNPC 自己的类变换器就绪;
+        // 那时 Class.forName 会提前加载并变换 NoppesUtilPlayer, 在变换器不全时把它污染成"坏类" → 之后 CNPC 用到就 NoClassDefFound 崩。
+        // getResource 只查 .class 文件在不在, 不加载/不链接/不变换, 安全。
+        return PsMixinPlugin.class.getClassLoader()
+            .getResource("noppes/npcs/NoppesUtilPlayer.class") != null;
     }
 
     @Override
