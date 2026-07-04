@@ -5,6 +5,7 @@ import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
 
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -21,6 +22,7 @@ import noppes.npcs.quests.QuestItem;
  * NpcMiscInventory 来自未 deobf 的 cnpc-api, 直接调它的 IInventory 继承方法可能编不过(SRG 名),
  * 所以统一转成 net.minecraft.inventory.IInventory(MC 自己的、已 deobf 的接口)再调用。
  */
+@Pseudo
 @Mixin(QuestItem.class)
 public abstract class MixinQuestItem {
 

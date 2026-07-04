@@ -4,6 +4,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -18,6 +19,7 @@ import noppes.npcs.NoppesUtilPlayer;
  * 且 handler 必须是 static(注入静态方法)。
  * compareItems 有重载(2 参/4 参), 用完整方法描述符区分, 只钩 4 参(EntityPlayer, ItemStack, boolean, boolean)版本。
  */
+@Pseudo
 @Mixin(NoppesUtilPlayer.class)
 public abstract class MixinNoppesUtilPlayer {
 
