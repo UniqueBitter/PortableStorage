@@ -68,6 +68,24 @@ public class StorageDao {
             0L);
     }
 
+    // 该玩家所有已有种类的键集合("item|meta|nbt_hash")。用于"匹配已有"批量收纳: 一次查出, 免得逐件查库。
+    public java.util.Set<String> keySet(String player) {
+        List<String> keys = db.query(
+            "SELECT item,meta,nbt_hash FROM entries WHERE player=?",
+            ps -> ps.setString(1, player),
+            rs -> rs.getString(1) + "|" + rs.getInt(2) + "|" + rs.getString(3));
+        return new java.util.HashSet<String>(keys);
+    }
+
+    // 该物品当前所在标签; 不存在则返回 -1。用于"存入时不覆盖已有分类"。
+    public int getTab(String player, String item, int meta, String nbtHash) {
+        return db.queryOne(
+            "SELECT tab FROM entries WHERE player=? AND item=? AND meta=? AND nbt_hash=?",
+            ps -> bindKey(ps, player, item, meta, nbtHash),
+            rs -> rs.getInt(1),
+            -1);
+    }
+
     private void bind(PreparedStatement ps, String player, StoredItem it) throws SQLException {
         ps.setString(1, player);
         ps.setString(2, it.getItem());
@@ -240,9 +258,9 @@ public class StorageDao {
         }
     }
 
-    // 具体标签(>=1)内关闭自动排序: 按放入顺序(插入 id)排; "全部"(-1)用名字/数量/类型排序。
+    // 所有视图(含自定义标签)都用玩家选的排序; 想要插入顺序就选"时间"排序(case 3 = ORDER BY id)。
     private String orderByFor(int sort, int tabId) {
-        return tabId >= 1 ? " ORDER BY id ASC" : orderBy(sort);
+        return orderBy(sort);
     }
 
     public List<StoredItem> queryWindow(String player, String keyword, int offset, int limit, int sort, int tabId) {

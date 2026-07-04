@@ -383,10 +383,41 @@ public final class StorageService {
             case 3:
                 assignCursorToTab(p, tabId);
                 break;
+            case 4:
+                reorderTab(p, tabId, parseIntOr(name, 0));
+                break;
             default:
                 break;
         }
         refresh(p);
+    }
+
+    private static int parseIntOr(String s, int def) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    // 把某自定义标签移动到第 pos 个位置(1-based, 仅在自定义标签之间排序)。
+    public static void reorderTab(EntityPlayerMP p, int tabId, int pos) {
+        if (tabId < 1 || pos < 1) return;
+        NBTTagCompound ps = persist(p);
+        net.minecraft.nbt.NBTTagList list = ps.getTagList("psTabs", 10);
+        java.util.List<NBTTagCompound> rest = new java.util.ArrayList<NBTTagCompound>();
+        NBTTagCompound moving = null;
+        for (int i = 0; i < list.tagCount(); i++) {
+            NBTTagCompound t = list.getCompoundTagAt(i);
+            if (moving == null && t.getInteger("Id") == tabId) moving = t;
+            else rest.add(t);
+        }
+        if (moving == null) return;
+        int idx = Math.max(0, Math.min(rest.size(), pos - 1)); // 1-based → 0-based, 越界夹取
+        rest.add(idx, moving);
+        net.minecraft.nbt.NBTTagList nl = new net.minecraft.nbt.NBTTagList();
+        for (NBTTagCompound t : rest) nl.appendTag(t);
+        ps.setTag("psTabs", nl);
     }
 
     public static void handleAction(EntityPlayerMP p, int action, long id, int amount, String keyword, int offset) {
@@ -480,17 +511,28 @@ public final class StorageService {
         p.playerNetServerHandler.sendPacket(new S2FPacketSetSlot(-1, -1, p.inventory.getItemStack()));
     }
 
-    private static void quickDepositAll(EntityPlayerMP p, StorageDao dao, String uuid) {
+    // 按 F 键的入口(不依赖界面): 全部收纳背包 → 刷新界面 + 反馈条数。
+    public static void quickDepositAll(EntityPlayerMP p) {
+        int moved = quickDepositAll(p, StorageProvider.dao(), StorageProvider.keyFor(p));
+        refresh(p); // 界面开着则刷新
+        if (moved > 0) p.addChatMessage(new ChatComponentText("§a已收纳 §e" + moved + " §a组物品到随身仓库"));
+    }
+
+    // 返回实际收纳(移入仓库)的格子数。
+    private static int quickDepositAll(EntityPlayerMP p, StorageDao dao, String uuid) {
         long locked = getLockedSlots(p);
         boolean full = false;
+        int moved = 0;
         // 逐个存入(而非批量), 以便容量随新种类逐件递增地判断; 放不下的留在背包不丢。
+        // 用 deposit(非 depositToCurrentTab): 已归类的合并时保留原标签(各回各家), 新种类进未分类, 不硬塞当前标签。
         for (int i = 0; i < p.inventory.mainInventory.length; i++) {
             ItemStack st = p.inventory.mainInventory[i];
             if (st == null) continue;
             if (st.getItem() instanceof ItemPortableTerminal) continue;
             if ((locked & (1L << i)) != 0) continue; // 锁定的格不收
-            if (depositToCurrentTab(p, dao, uuid, ItemStackCodec.encode(st, p))) {
+            if (deposit(p, dao, uuid, ItemStackCodec.encode(st, p))) {
                 p.inventory.mainInventory[i] = null;
+                moved++;
             } else {
                 full = true;
             }
@@ -498,6 +540,7 @@ public final class StorageService {
         if (full) warnFull(p);
         p.inventoryContainer.detectAndSendChanges();
         if (p.openContainer != null) p.openContainer.detectAndSendChanges();
+        return moved;
     }
 
     // 泰拉瑞亚式"快速堆叠"(按键入口, 不依赖界面): 委托给内部实现后手动刷新界面。
@@ -511,21 +554,23 @@ public final class StorageService {
     private static void quickStack(EntityPlayerMP p, StorageDao dao, String uuid) {
         long locked = getLockedSlots(p);
         ItemStack[] main = p.inventory.mainInventory;
-        int moved = 0;
+        java.util.Set<String> existing = dao.keySet(uuid); // 一次查出所有已有种类, 免得逐件查库
+        java.util.List<StoredItem> toStore = new java.util.ArrayList<StoredItem>();
+        java.util.List<Integer> slots = new java.util.ArrayList<Integer>();
         for (int i = 9; i < main.length; i++) { // 跳过快捷栏 0-8
             ItemStack st = main[i];
             if (st == null) continue;
             if (st.getItem() instanceof ItemPortableTerminal) continue;
             if ((locked & (1L << i)) != 0) continue; // 锁定格不收
             StoredItem enc = ItemStackCodec.encode(st, p);
-            if (dao.entryId(uuid, enc.getItem(), enc.getMeta(), enc.getNbtHash()) < 0) continue; // 仓库没这种 → 跳过
-            dao.upsert(uuid, enc); // 已存在 → 合并累加(保持原标签, 无需容量检查)
-            main[i] = null;
-            moved++;
+            if (!existing.contains(itemKey(enc))) continue; // 仓库没这种 → 跳过
+            toStore.add(enc);
+            slots.add(i);
         }
-        if (moved > 0) {
-            p.inventoryContainer.detectAndSendChanges();
-            if (p.openContainer != null) p.openContainer.detectAndSendChanges();
-        }
+        if (toStore.isEmpty()) return;
+        dao.upsertBatch(uuid, toStore); // 一个事务批量合并(保持原标签, 无需容量检查)
+        for (int idx : slots) main[idx] = null;
+        p.inventoryContainer.detectAndSendChanges();
+        if (p.openContainer != null) p.openContainer.detectAndSendChanges();
     }
 }

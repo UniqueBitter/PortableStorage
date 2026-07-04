@@ -23,6 +23,11 @@ public final class NetworkHandler {
         INSTANCE.registerMessage(LockSlotPacket.Handler.class, LockSlotPacket.class, id++, Side.SERVER);
         INSTANCE.registerMessage(RestockTogglePacket.Handler.class, RestockTogglePacket.class, id++, Side.SERVER);
         INSTANCE.registerMessage(TabActionPacket.Handler.class, TabActionPacket.class, id++, Side.SERVER);
+        INSTANCE.registerMessage(DepositAllPacket.Handler.class, DepositAllPacket.class, id++, Side.SERVER);
+    }
+
+    public static void depositAll() {
+        INSTANCE.sendToServer(new DepositAllPacket());
     }
 
     public static void openStorage() {

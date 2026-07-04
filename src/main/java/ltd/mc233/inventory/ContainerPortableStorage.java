@@ -19,7 +19,7 @@ public class ContainerPortableStorage extends Container {
     public ContainerPortableStorage(EntityPlayer player) {
         this.player = player;
         InventoryPlayer inv = player.inventory;
-        int top = 116;
+        int top = 139; // 与 generic_54 箱子的玩家背包位置一致(主背包 y=139, 快捷栏 y=197)
         for (int row = 0; row < 3; row++) for (int col = 0; col < 9; col++)
             addSlotToContainer(new Slot(inv, col + row * 9 + 9, 8 + col * 18, top + row * 18));
         for (int col = 0; col < 9; col++) addSlotToContainer(new Slot(inv, col, 8 + col * 18, top + 58));

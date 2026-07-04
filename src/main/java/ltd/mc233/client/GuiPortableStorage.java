@@ -27,13 +27,23 @@ import ltd.mc233.net.PageResultPacket;
 public class GuiPortableStorage extends GuiContainer {
 
     public static final int COLS = 9;
-    public static final int VIS_ROWS = 5;
-    public static final int WINDOW = 90;
+    public static final int VIS_ROWS = 6; // 与 generic_54 箱子一致: 6 行
+    public static final int WINDOW = 108;
     private static final int SLOT = 18;
     private static final int GRID_X = 8;
-    private static final int GRID_Y = 20;
+    private static final int GRID_Y = 18; // generic_54 箱子首格 y=18
     private static final int BTN_W = 11;
     private static final int BTN_GAP = 13; // 相邻按钮的纵向间距(按钮高 + 2px 缝)
+    // 仓库背景贴图(取自整合包的 generic_54 木质箱子皮肤, 256x256, GUI 区 176x222)。
+    private static final net.minecraft.util.ResourceLocation BG = new net.minecraft.util.ResourceLocation(
+        "portablestorage",
+        "textures/gui/storage.png");
+    // 木质配色(与背景贴图呼应): 用于标签/滚动条等自绘控件。
+    private static final int WOOD_LIGHT = 0xFFCBA76A; // 高光
+    private static final int WOOD_FILL = 0xFF9A6A38; // 常态填充
+    private static final int WOOD_DARK = 0xFF4E3216; // 阴影
+    private static final int WOOD_GOLD = 0xFFE8C36A; // 激活/高亮
+    private static final int WOOD_TRACK = 0xFF6B4A28; // 滚动条槽内
 
     private static volatile PageResultPacket pending;
 
@@ -63,8 +73,9 @@ public class GuiPortableStorage extends GuiContainer {
     private String[] tabNames = new String[0];
     private int[] tabOrderCache = { -1 }; // 标签显示顺序[全部,自定义...], 仅收包(tabIds 变化)时重建, 避免每帧分配数组
     private String[] countLabels = new String[0]; // 每格数量的缩写文本, 收包时算好, 避免每帧 String.format
-    private GuiTextField renameField; // 右键标签时的行内改名输入框
-    private int renamingTab = 0; // 0=未在改名; >=1=正在改名的标签id
+    private GuiTextField renameField; // 右键标签改名 / 中键标签改序号 共用的行内输入框
+    private int renamingTab = 0; // 0=未在编辑; >=1=正在编辑的标签id
+    private boolean reorderMode = false; // true=正在输入序号(而非改名)
     private int renameX, renameY;
     private static final int RENAME_W = 140, RENAME_H = 20;
     private IconButton stackBtn;
@@ -84,8 +95,8 @@ public class GuiPortableStorage extends GuiContainer {
 
     public GuiPortableStorage(Container c) {
         super(c);
-        this.xSize = 195;
-        this.ySize = 210; // 比物品栏多出底部一条, 放容量计数
+        this.xSize = 176; // 与 generic_54 箱子 GUI 区一致
+        this.ySize = 222;
     }
 
     public static void deliver(PageResultPacket p) {
@@ -104,7 +115,7 @@ public class GuiPortableStorage extends GuiContainer {
         this.buttonList.clear();
         int by = this.guiTop + 4;
         this.stackBtn = new IconButton(1, bx, by, BTN_W, 0);
-        this.stackBtn.tip = () -> (this.stackMode ? "§a泰拉模式" : "§c全部收纳") + "\n§7左键收纳,右键切换模式";
+        this.stackBtn.tip = () -> (this.stackMode ? "§a匹配已有物品" : "§c全部收纳") + "\n§7左键收纳,右键切换模式";
         this.sortByBtn = new IconButton(2, bx, by + BTN_GAP, BTN_W, sortByIcon());
         this.sortByBtn.tip = () -> "排序: "
             + (this.sortBy == 1 ? "数量" : this.sortBy == 2 ? "类型" : this.sortBy == 3 ? "时间" : "名字");
@@ -220,11 +231,14 @@ public class GuiPortableStorage extends GuiContainer {
 
     @Override
     protected void keyTyped(char ch, int key) {
-        // 改名模式: 回车确认, Esc 取消, 其余交给输入框。
+        // 改名/改序号模式: 回车确认, Esc 取消, 其余交给输入框。改序号时只收数字。
         if (this.renamingTab >= 1) {
             if (key == Keyboard.KEY_RETURN) endRename(true);
             else if (key == Keyboard.KEY_ESCAPE) endRename(false);
-            else if (this.renameField != null) this.renameField.textboxKeyTyped(ch, key);
+            else if (this.renameField != null) {
+                if (this.reorderMode && ch >= ' ' && !Character.isDigit(ch)) return; // 序号只允许数字
+                this.renameField.textboxKeyTyped(ch, key);
+            }
             return;
         }
         if (key == Keyboard.KEY_ESCAPE) {
@@ -357,6 +371,10 @@ public class GuiPortableStorage extends GuiContainer {
         }
         int tid = order[tabHit];
         boolean holding = this.mc.thePlayer.inventory.getItemStack() != null;
+        if (btn == 2) { // 中键: 自定义标签 → 输入序号改排序
+            if (tid >= 1) beginReorder(tid, tabHit);
+            return true;
+        }
         if (btn == 1) { // 右键
             if (tid == -1) { // "全部"格右键: 切换其子模式(全部 ↔ 未分类)并切过去; 子模式会话内保留
                 if (!holding) {
@@ -414,8 +432,13 @@ public class GuiPortableStorage extends GuiContainer {
         }
     }
 
+    // 滚动条 X: 贴图是定宽 176 的箱子, 面板内没位置, 放到面板右外缘。
+    private int scrollBarX() {
+        return this.guiLeft + this.xSize + 2;
+    }
+
     private boolean inScrollbar(int mx, int my) {
-        int barX = this.guiLeft + GRID_X + COLS * SLOT + 3;
+        int barX = scrollBarX();
         int barTop = this.guiTop + GRID_Y;
         return inRect(mx, my, barX, barTop, 10, VIS_ROWS * SLOT);
     }
@@ -485,60 +508,45 @@ public class GuiPortableStorage extends GuiContainer {
         }
     }
 
-    private void drawSlot(int ix, int iy) {
-        int x = ix - 1;
-        int y = iy - 1;
-        drawRect(x, y, x + 18, y + 18, 0xFF8B8B8B);
-        drawRect(x, y, x + 18, y + 1, 0xFF373737);
-        drawRect(x, y, x + 1, y + 18, 0xFF373737);
-        drawRect(x, y + 17, x + 18, y + 18, 0xFFFFFFFF);
-        drawRect(x + 17, y, x + 18, y + 18, 0xFFFFFFFF);
-    }
-
     @Override
     protected void drawGuiContainerBackgroundLayer(float pt, int mx, int my) {
         drawDefaultBackground();
         int l = this.guiLeft;
         int t = this.guiTop;
-        drawRect(l, t, l + this.xSize, t + this.ySize, 0xFFC6C6C6);
-        drawRect(l, t, l + this.xSize, t + 1, 0xFFFFFFFF);
-        drawRect(l, t, l + 1, t + this.ySize, 0xFFFFFFFF);
-        drawRect(l + this.xSize - 1, t, l + this.xSize, t + this.ySize, 0xFF555555);
-        drawRect(l, t + this.ySize - 1, l + this.xSize, t + this.ySize, 0xFF555555);
+        // 木质箱子贴图作背景(自带仓库格 + 玩家背包格), 所以不再自绘面板/格子。
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+        this.mc.getTextureManager()
+            .bindTexture(BG);
+        drawTexturedModalRect(l, t, 0, 0, this.xSize, this.ySize);
         if (this.search != null) this.search.drawTextBox();
-        for (int row = 0; row < VIS_ROWS; row++) {
-            for (int col = 0; col < COLS; col++) {
-                drawSlot(l + GRID_X + col * SLOT, t + GRID_Y + row * SLOT);
-            }
-        }
-        // 玩家背包槽位背景(坐标须与容器一致: top=116)
-        for (int i = 0; i < this.inventorySlots.inventorySlots.size(); i++) {
-            Slot s = (Slot) this.inventorySlots.inventorySlots.get(i);
-            drawSlot(l + s.xDisplayPosition, t + s.yDisplayPosition);
-        }
-        int barX = l + GRID_X + COLS * SLOT + 3;
+        // 滚动条画在面板右外缘(贴图定宽, 里面没位置)。
+        int barX = scrollBarX();
         int barTop = t + GRID_Y;
         int barH = VIS_ROWS * SLOT;
-        drawRect(barX, barTop, barX + 10, barTop + barH, 0xFF555555);
-        drawRect(barX + 1, barTop + 1, barX + 9, barTop + barH - 1, 0xFF8B8B8B);
+        drawRect(barX, barTop, barX + 10, barTop + barH, WOOD_DARK); // 槽边
+        drawRect(barX + 1, barTop + 1, barX + 9, barTop + barH - 1, WOOD_TRACK); // 槽内
         int maxRow = maxRowOffset();
         // 拖动中用客户端预测行画滑块 → 跟手不回弹; 平时用服务端确认的 rowOffset。
         int shownRow = (this.draggingBar && this.dragRow >= 0) ? this.dragRow : this.rowOffset;
         int handleY = barTop + (maxRow == 0 ? 0 : (int) ((barH - 16) * (shownRow / (double) maxRow)));
-        drawRect(barX, handleY, barX + 10, handleY + 16, 0xFFC6C6C6);
-        drawRect(barX, handleY, barX + 10, handleY + 1, 0xFFFFFFFF);
-        drawRect(barX, handleY, barX + 1, handleY + 16, 0xFFFFFFFF);
-        drawRect(barX + 9, handleY, barX + 10, handleY + 16, 0xFF373737);
-        drawRect(barX, handleY + 15, barX + 10, handleY + 16, 0xFF373737);
+        drawRect(barX, handleY, barX + 10, handleY + 16, WOOD_GOLD); // 滑块(木金)
+        drawRect(barX, handleY, barX + 10, handleY + 1, WOOD_LIGHT);
+        drawRect(barX, handleY, barX + 1, handleY + 16, WOOD_LIGHT);
+        drawRect(barX + 9, handleY, barX + 10, handleY + 16, WOOD_DARK);
+        drawRect(barX, handleY + 15, barX + 10, handleY + 16, WOOD_DARK);
     }
 
     @Override
     protected void drawGuiContainerForegroundLayer(int mx, int my) {
-        this.fontRendererObj.drawString("随身仓库", 8, 8, 0x404040);
-        // 底部状态栏: 无限容量(capTotal<0)只显示已存种类数; 否则显示 X/Y, 满了标红。
-        String cap = this.capTotal < 0 ? ("已存 " + this.capUsed + " 种") : ("容量 " + this.capUsed + " / " + this.capTotal);
-        int capColor = (this.capTotal > 0 && this.capUsed >= this.capTotal) ? 0xAA0000 : 0x606060;
-        this.fontRendererObj.drawString(cap, 8, this.ySize - 14, capColor);
+        this.fontRendererObj.drawString("随身仓库", 8, 6, 0xFFFFFFFF); // 纯白, 不加阴影(阴影会发灰)
+        // 容量计数在仓库格与背包之间的空隙: 无限=显示已存种类; 有限=显示还能存多少。小一号白字, 满了标红。
+        // capTotal < 0 = 无限容量模式(哨兵), 显示"无限"; 否则显示剩余可存种类数。
+        String cap = this.capTotal < 0 ? "还可存 无限" : ("还可存 " + Math.max(0, this.capTotal - this.capUsed) + " 种");
+        int capColor = (this.capTotal >= 0 && this.capUsed >= this.capTotal) ? 0xFFFF5555 : 0xFFFFFFFF;
+        GL11.glPushMatrix();
+        GL11.glScalef(0.75F, 0.75F, 1F); // 小一号
+        this.fontRendererObj.drawString(cap, (int) (8 / 0.75F), (int) (130 / 0.75F), capColor);
+        GL11.glPopMatrix();
         int n = Math.min(this.ids.length, VIS_ROWS * COLS);
         RenderHelper.enableGUIStandardItemLighting();
         for (int i = 0; i < n; i++) {
@@ -608,6 +616,10 @@ public class GuiPortableStorage extends GuiContainer {
     @Override
     public void drawScreen(int mx, int my, float pt) {
         super.drawScreen(mx, my, pt);
+        // GuiContainer 渲染物品后会把 GL_LIGHTING 留成开启, 否则之后画的白字会被压暗成灰色。这里先关掉。
+        RenderHelper.disableStandardItemLighting();
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glColor4f(1F, 1F, 1F, 1F);
         drawTabs();
         if (this.renamingTab >= 1 && this.renameField != null) {
             int px = this.renameX, py = this.renameY;
@@ -617,7 +629,9 @@ public class GuiPortableStorage extends GuiContainer {
             drawRect(px - 4, py - 15, px + RENAME_W + 4, py + RENAME_H + 4, 0xF01A1A1A); // 面板底
             drawRect(px - 4, py - 15, px + RENAME_W + 4, py - 14, 0xFF5A5A5A); // 顶边
             drawRect(px - 4, py + RENAME_H + 3, px + RENAME_W + 4, py + RENAME_H + 4, 0xFF5A5A5A); // 底边
-            this.fontRendererObj.drawString("重命名标签  §7回车确定 / Esc取消", px, py - 12, 0xFFFFFF);
+            String title = this.reorderMode ? ("输入新序号 1-" + this.tabIds.length + "  §7回车确定 / Esc取消")
+                : "重命名标签  §7回车确定 / Esc取消";
+            this.fontRendererObj.drawString(title, px, py - 12, 0xFFFFFF);
             drawRect(px, py, px + RENAME_W, py + RENAME_H, 0xFF000000); // 输入框底
             drawRect(px + 1, py + 1, px + RENAME_W - 1, py + RENAME_H - 1, 0xFF2B2B2B);
             this.renameField.drawTextBox();
@@ -639,7 +653,7 @@ public class GuiPortableStorage extends GuiContainer {
     private static final int TAB_SZ = 11, TAB_STEP = 13; // 与左侧按钮一致 (BTN_W/BTN_GAP)
 
     private int tabColX() {
-        return this.guiLeft + this.xSize - 1; // 吸附在面板右边缘(贴主体)
+        return this.guiLeft + this.xSize + 14; // 面板右外缘: 先滚动条(+2..+12)再标签列
     }
 
     private static final int MAX_TABS = 15;
@@ -661,9 +675,10 @@ public class GuiPortableStorage extends GuiContainer {
         return this.tabIds.length < MAX_TABS;
     }
 
-    private void beginRename(int tid, int orderIndex) {
+    // 打开标签的行内输入框(改名/改序号共用)。居中于仓库网格区, 输入法候选框有空间。
+    private void openTabInput(int tid, boolean reorder, String initial, int maxLen) {
         this.renamingTab = tid;
-        // 居中于仓库网格区: 输入框更大、周围留白, 输入法候选框有空间, 打字更舒服。
+        this.reorderMode = reorder;
         this.renameX = this.guiLeft + GRID_X + (COLS * SLOT - RENAME_W) / 2;
         this.renameY = this.guiTop + GRID_Y + 30;
         this.renameField = new GuiTextField(
@@ -672,24 +687,34 @@ public class GuiPortableStorage extends GuiContainer {
             this.renameY + 3,
             RENAME_W - 6,
             RENAME_H - 6);
-        this.renameField.setMaxStringLength(16);
+        this.renameField.setMaxStringLength(maxLen);
         this.renameField.setEnableBackgroundDrawing(false); // 用自绘面板, 关掉它自带的黑框避免双框
+        this.renameField.setText(initial);
+        this.renameField.setFocused(true);
+    }
+
+    private void beginRename(int tid, int orderIndex) {
         String cur = "";
         for (int i = 0; i < this.tabIds.length; i++) {
             if (this.tabIds[i] == tid && this.tabNames[i] != null && !this.tabNames[i].startsWith("标签"))
                 cur = this.tabNames[i];
         }
-        this.renameField.setText(cur);
-        this.renameField.setFocused(true);
+        openTabInput(tid, false, cur, 16);
+    }
+
+    // 中键标签 → 输入新序号(1-based, 自定义标签间排序)。orderIndex 即当前序号。
+    private void beginReorder(int tid, int orderIndex) {
+        openTabInput(tid, true, String.valueOf(orderIndex), 2);
     }
 
     private void endRename(boolean save) {
         if (save && this.renamingTab >= 1 && this.renameField != null) {
             String t = this.renameField.getText()
                 .trim();
-            if (!t.isEmpty()) NetworkHandler.sendTabAction(2, this.renamingTab, t);
+            if (!t.isEmpty()) NetworkHandler.sendTabAction(this.reorderMode ? 4 : 2, this.renamingTab, t);
         }
         this.renamingTab = 0;
+        this.reorderMode = false;
         this.renameField = null;
     }
 
@@ -725,21 +750,22 @@ public class GuiPortableStorage extends GuiContainer {
 
     private void drawTabButton(int x, int y, String label, boolean active, boolean gridIcon) {
         int w = TAB_SZ, h = TAB_SZ;
-        int fill = active ? 0xFFE0CC66 : 0xFF8B8B8B; // 激活=暖金
+        int fill = active ? WOOD_GOLD : WOOD_FILL; // 激活=亮金木, 常态=棕木
         drawRect(x, y, x + w, y + h, fill);
-        drawRect(x, y, x + w, y + 1, 0xFFFFFFFF);
-        drawRect(x, y, x + 1, y + h, 0xFFFFFFFF);
-        drawRect(x, y + h - 1, x + w, y + h, 0xFF373737);
-        drawRect(x + w - 1, y, x + w, y + h, 0xFF373737);
-        int fg = active ? 0xFF3A2A00 : 0xFF303030;
+        drawRect(x, y, x + w, y + 1, WOOD_LIGHT);
+        drawRect(x, y, x + 1, y + h, WOOD_LIGHT);
+        drawRect(x, y + h - 1, x + w, y + h, WOOD_DARK);
+        drawRect(x + w - 1, y, x + w, y + h, WOOD_DARK);
+        int icon = active ? 0xFF3A2A00 : 0xFFFFFFFF; // 网格图标: 激活=深棕(金底上可读), 常态=白
         if (gridIcon) { // "全部" = 2x2 小方格(适配 11px 按钮)
-            drawRect(x + 2, y + 2, x + 5, y + 5, fg);
-            drawRect(x + 6, y + 2, x + 9, y + 5, fg);
-            drawRect(x + 2, y + 6, x + 5, y + 9, fg);
-            drawRect(x + 6, y + 6, x + 9, y + 9, fg);
+            drawRect(x + 2, y + 2, x + 5, y + 5, icon);
+            drawRect(x + 6, y + 2, x + 9, y + 5, icon);
+            drawRect(x + 2, y + 6, x + 5, y + 9, icon);
+            drawRect(x + 6, y + 6, x + 9, y + 9, icon);
         } else {
             int tw = this.fontRendererObj.getStringWidth(label);
-            this.fontRendererObj.drawString(label, x + (w - tw) / 2 + 1, y + 2, fg & 0xFFFFFF);
+            // 标签文字纯白, 不加阴影(阴影会让字发灰)。
+            this.fontRendererObj.drawString(label, x + (w - tw) / 2 + 1, y + 2, 0xFFFFFFFF);
         }
     }
 
