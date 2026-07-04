@@ -35,6 +35,7 @@ public abstract class MixinNoppesUtilPlayer {
     private static void ps$compareItems(EntityPlayer player, ItemStack item, boolean ignoreDamage, boolean ignoreNBT,
         CallbackInfoReturnable<Boolean> cir) {
         if (cir.getReturnValueZ() || item == null) return; // 背包已够, 不插手
+        // 判定(只读)两端都跑: 客户端跑是为了让交易界面的"缺少物品/足够"文字也把仓库算上(显示正确)。
         long have = StorageItemSource.countAvailable(player, item, ignoreDamage, ignoreNBT);
         if (have >= item.stackSize) cir.setReturnValue(true);
     }
@@ -46,7 +47,8 @@ public abstract class MixinNoppesUtilPlayer {
         remap = false)
     private static void ps$consumeHead(EntityPlayer player, ItemStack item, boolean ignoreDamage, boolean ignoreNBT,
         CallbackInfo ci) {
-        if (item == null) {
+        // ★只在服务端扣仓库: slotClick 在客户端与服务端各跑一次, 若两端都扣就是双扣。客户端直接跳过。
+        if (item == null || player.worldObj == null || player.worldObj.isRemote) {
             PS_REMAIN.set(0L);
             return;
         }
@@ -61,6 +63,7 @@ public abstract class MixinNoppesUtilPlayer {
         remap = false)
     private static void ps$consumeReturn(EntityPlayer player, ItemStack item, boolean ignoreDamage, boolean ignoreNBT,
         CallbackInfo ci) {
+        if (player.worldObj == null || player.worldObj.isRemote) return; // 客户端不扣仓库(见 HEAD)
         Long remain = PS_REMAIN.get();
         PS_REMAIN.remove();
         if (remain != null && remain > 0 && item != null) {

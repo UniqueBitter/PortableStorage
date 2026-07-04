@@ -55,7 +55,8 @@ public abstract class MixinQuestItem {
 
     @Inject(method = "handleComplete", at = @At("HEAD"), remap = false)
     private void ps$handleCompleteHead(EntityPlayer player, CallbackInfo ci) {
-        if (leaveItems) { // 不消耗物品的任务, 仓库不动
+        // 只在服务端扣仓库(与交易同理: 客户端也跑会双扣); leaveItems 的任务不消耗物品。
+        if (player.worldObj == null || player.worldObj.isRemote || leaveItems) {
             PS_SHORTFALL.remove();
             return;
         }
@@ -73,6 +74,7 @@ public abstract class MixinQuestItem {
 
     @Inject(method = "handleComplete", at = @At("RETURN"), remap = false)
     private void ps$handleCompleteReturn(EntityPlayer player, CallbackInfo ci) {
+        if (player.worldObj == null || player.worldObj.isRemote) return; // 客户端不扣仓库
         long[] shortfall = PS_SHORTFALL.get();
         PS_SHORTFALL.remove();
         if (shortfall == null) return; // leaveItems=true 或未捕获
