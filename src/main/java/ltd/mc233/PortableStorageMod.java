@@ -85,7 +85,7 @@ public class PortableStorageMod {
         String[] cls = { "ltd.mc233.core.MagnetRouter", "ltd.mc233.core.MagnetRouter$Split",
             "ltd.mc233.core.StoredItem", "ltd.mc233.core.PinInUtil", "ltd.mc233.item.ItemStackCodec",
             "ltd.mc233.db.StorageDb", "ltd.mc233.db.StorageDao", "ltd.mc233.StorageProvider",
-            "ltd.mc233.StorageService",
+            "ltd.mc233.StorageService", "ltd.mc233.core.DeductPlan",
             // 拼音库(PinIn): 必须在 init 阶段预加载, 否则在服务端 tick 内首次懒加载会触发 InvTweaks ASM 变换器 NPE → 崩溃。
             "me.towdium.pinin.PinIn" };
         for (String c : cls) {
@@ -97,5 +97,13 @@ public class PortableStorageMod {
         }
         // 实际跑一遍拼音匹配, 把 PinIn 相关类在 init 阶段全部加载好。
         ltd.mc233.core.PinInUtil.preload();
+        // StorageItemSource 引用 noppes.*: 只有装了 CNPC 才预加载, 否则会 NoClassDefFoundError。
+        if (ltd.mc233.compat.CnpcCompat.LOADED) {
+            try {
+                Class.forName("ltd.mc233.compat.StorageItemSource", true, getClass().getClassLoader());
+            } catch (Throwable t) {
+                LOG.warn("预加载 StorageItemSource 失败", t);
+            }
+        }
     }
 }
