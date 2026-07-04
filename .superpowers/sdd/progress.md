@@ -46,3 +46,24 @@
 - 实机崩溃#3: 丢箭→磁铁tick中首次懒加载 com.portablestorage.core.MagnetRouter, 触发 InventoryTweaks ContainerTransformer 在 ClassReader.<init> NPE → NoClassDefFoundError 崩服。根因是InvTweaks的ASM变换器在玩家tick上下文懒加载类时出错(init上下文加载的类都正常)。修复: ①init里预加载磁铁/补充tick路径全部类; ②MagnetManager/RestockManager的onTick包try/catch(Throwable)兜底, 永不崩游戏(首次记一次日志)。
 - 实机反馈轮5: ①排序持久化(存玩家PlayerPersisted NBT psSortMode 0..5; 打开界面发sort=-1请求记忆值, 服务端PageResult回传resolved sort, 客户端采用并更新按钮; 随存档/重启/重开都保留) ②抄AE: 排序拆成 sortBy(名字/数量/类型) + 方向(升/降) 两个按钮, sort编码=by*2+desc。
 - 实机反馈轮6: ①一键收纳加锁定格功能——中键点背包格切换锁定(LockSlotPacket→toggleLock存psLockedSlots位掩码NBT, 持久化; PageResult带lockMask; GUI金边渲染; quickDepositAll跳过锁定位)。②搜索框加自动/手动切换(手动模式回车才搜)。③按钮全部移到AE风格左侧悬浮小按钮列(收/名数类/升降/自手, 带悬停tooltip), 玩家背包上移到top=116紧凑布局, ySize 222→200。
+
+---
+
+# CNPC 仓库集成(2026-07-04, 分支 feat/cnpc-storage)
+计划: docs/superpowers/plans/2026-07-04-cnpc-storage-integration.md
+BASE(基线提交): c1a1ad7
+- Task 1: complete (commit 8c30db7, review clean; Minor: 负need未测,非阻塞)
+- Task 2: complete (commit d44e10f, review clean; 22/22测试; Minor均为简报自带非实现引入)
+- Task 3: complete (commit 54574d5, review clean; compile+22测试绿; Minor: StorageItemSource注释"2参"应"4参"(简报自带),countAvailable守卫冗余)
+- Task 4: complete (commit f0d3b30, review clean; 三处偏离经反编译独立证实均正确必要: mixinsPackage相对值(GTNH自动前缀modGroup)、shaded ASM lib.tree.ClassNode、提交生成的json)
+  ★关键: generateAssets在json已存在时no-op → Task5/6必须手动往 src/main/resources/mixins.portablestorage.json 的 mixins 数组加类名
+  ★注意: ./gradlew build 因7个文件既有spotless失败(本会话注释+CNPC文件), 用 assemble 验证; 收尾前跑 spotlessApply
+- Task 5: complete (impl f7db1fb + fix 618afd3, 复审clean; assemble绿; 复审抓出Critical: handleComplete在RETURN读扣后背包量→仓库多扣(吞物), 已修为HEAD捕获扣前量+ThreadLocal, 场景A/B/C=0/6/10正确; Minor: 静态ThreadLocal理论重入(与Task6同, CNPC流程串行故可接受)); ★运行期未验证需用户实机
+- 最终全分支审查(opus, c1a1ad7..57c4d5f): ✅ Ready to merge(待实机)。所有 mixin→胶水→DAO 接缝、匹配一致性(全走compareItems)、ThreadLocal隔离、软依赖门控 均核对通过。
+  ★审查提出的最高风险(交任务时QuestItem.handleComplete若内部调consumeItem→两mixin双扣仓库)已由控制器反编译当场排除: QuestItem只调compareItems(2物品), handleComplete用setInventorySlotContents+splitStack直接扣背包, 不走consumeItem → 无双扣。
+  ★审查裁定 DeductPlan 为死代码(mixin内联扣除算术) → 收尾删除。
+- 收尾: 删DeductPlan + spotlessApply(修既有格式使build通过)。
+- 收尾完成: DeductPlan删除(commit fff9237, 测试22→17全绿) + spotlessApply(commit a3191f5, ./gradlew build BUILD SUCCESSFUL)。
+- === CNPC集成特性代码完成 (feat/cnpc-storage, 提交链 8c30db7..a3191f5), 待用户实机验证 + IDEA合并main ===
+- ★实机崩溃(1.0.10): MixinNoppesUtilPlayer致noppes.npcs.NoppesUtilPlayer加载失败(NoClassDefFoundError, 连累RecipeCarpentry/NPC AI崩服)。日志: mixin配置注册2个但无"Mixing into noppes"应用记录、无注入异常 → 本包CNPC+CustomNPCsFix+CosmicNPCs+UniMixins0.1.20叠加下拦截变换该类即加载失败(B方案脆的坑, 实锤)。
+- 处置: commit f7c74e0 清空mixins数组停用, 重建装1.0.11恢复可玩(仓库/磁铁/补货等正常, 仅CNPC集成失效)。mixin代码仍在分支。待用户定: 搁置 vs 深挖修复(required=false+verbose取真错误 / 只留QuestItem试 / 改投方案A脚本不碰字节码)。
