@@ -33,8 +33,10 @@ public class StorageDaoMatchTest {
     // 假谓词: 按注册名判定(不依赖 MC/CNPC), 只为验证跨行聚合/扣减的算术。
     private static StorageDao.RowMatch itemIs(final String name) {
         return new StorageDao.RowMatch() {
+
             public boolean test(StoredItem it) {
-                return it.getItem().equals(name);
+                return it.getItem()
+                    .equals(name);
             }
         };
     }

@@ -110,7 +110,8 @@ public class StorageDao {
         synchronized (db) {
             java.util.List<Long> ids = new java.util.ArrayList<Long>();
             try (java.sql.PreparedStatement ps = db.getConnection()
-                .prepareStatement("SELECT id,item,meta,nbt,nbt_hash,count,name,lore FROM entries WHERE player=? ORDER BY id")) {
+                .prepareStatement(
+                    "SELECT id,item,meta,nbt,nbt_hash,count,name,lore FROM entries WHERE player=? ORDER BY id")) {
                 ps.setString(1, player);
                 try (java.sql.ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {

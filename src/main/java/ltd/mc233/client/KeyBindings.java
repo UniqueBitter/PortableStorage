@@ -35,7 +35,9 @@ public class KeyBindings {
         ClientRegistry.registerKeyBinding(magnet);
         ClientRegistry.registerKeyBinding(depositAll);
         // 把自己注册成监听器, 这样下面的 onKey 才会在有按键时被调用。
-        FMLCommonHandler.instance().bus().register(new KeyBindings());
+        FMLCommonHandler.instance()
+            .bus()
+            .register(new KeyBindings());
     }
 
     // 每次有键盘输入, Forge 都会调这个方法。我们挨个问三个键"刚被按下没", 按了就发对应的包。

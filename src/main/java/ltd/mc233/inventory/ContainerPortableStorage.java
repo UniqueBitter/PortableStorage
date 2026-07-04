@@ -18,7 +18,7 @@ import ltd.mc233.item.ItemStackCodec;
  * 仓库那一大片物品格不归它管 —— 那是客户端自己画的(见 GuiPortableStorage)。
  *
  * (Bukkit 里你几乎不碰这层, 菜单点击走 InventoryClickEvent 就行;
- *  Forge 自定义界面得自己继承 Container、摆好槽位、接管点击。)
+ * Forge 自定义界面得自己继承 Container、摆好槽位、接管点击。)
  */
 public class ContainerPortableStorage extends Container {
 

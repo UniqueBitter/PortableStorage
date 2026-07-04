@@ -49,11 +49,17 @@ public class StorageCapCommand extends CommandBase {
             if (args[0].equalsIgnoreCase("cap")) return getListOfStringsMatchingLastWord(args, "get", "add", "set");
             if (args[0].equalsIgnoreCase("autovoucher")) return getListOfStringsMatchingLastWord(args, "on", "off");
             if (args[0].equalsIgnoreCase("lock") || args[0].equalsIgnoreCase("unlock"))
-                return getListOfStringsMatchingLastWord(args, MinecraftServer.getServer().getAllUsernames()); // 补在线玩家名
+                return getListOfStringsMatchingLastWord(
+                    args,
+                    MinecraftServer.getServer()
+                        .getAllUsernames()); // 补在线玩家名
         }
         // 第 3 个词: /storage cap <get|add|set> [玩家] → 补玩家名
         if (args.length == 3 && args[0].equalsIgnoreCase("cap")) {
-            return getListOfStringsMatchingLastWord(args, MinecraftServer.getServer().getAllUsernames());
+            return getListOfStringsMatchingLastWord(
+                args,
+                MinecraftServer.getServer()
+                    .getAllUsernames());
         }
         return null;
     }

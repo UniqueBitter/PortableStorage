@@ -45,8 +45,11 @@ public final class Config {
         defaultCapacity = c
             .getInt("defaultCapacity", "storage", 0, 0, 100000, "随身仓库起始容量(能存多少种物品), 默认0=从零解锁; 老存档会取 max(本值, 现有种类数)");
         maxCapacity = c.getInt("maxCapacity", "storage", 999, 1, 100000, "扩容券等正常途径能提升到的容量上限; 指令可突破");
-        unlimitedStorage = c
-            .getBoolean("unlimitedStorage", "storage", false, "无限容量: 不限制能存多少种物品(通用大背包); 默认 false=RPG 容量门槛(逐步解锁); true=通用大背包");
+        unlimitedStorage = c.getBoolean(
+            "unlimitedStorage",
+            "storage",
+            false,
+            "无限容量: 不限制能存多少种物品(通用大背包); 默认 false=RPG 容量门槛(逐步解锁); true=通用大背包");
         autoConsumeVoucher = c.getBoolean(KEY_AUTOVOUCHER, CAT_STORAGE, true, CMT_AUTOVOUCHER);
         autoFocusSearch = c.getBoolean(KEY_AUTOFOCUS, CAT_CLIENT, true, CMT_AUTOFOCUS);
         if (c.hasChanged()) {

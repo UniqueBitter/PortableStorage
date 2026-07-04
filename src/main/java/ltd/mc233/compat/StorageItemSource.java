@@ -22,6 +22,7 @@ public final class StorageItemSource {
     private static StorageDao.RowMatch matcher(final ItemStack required, final boolean ignoreDamage,
         final boolean ignoreNBT) {
         return new StorageDao.RowMatch() {
+
             public boolean test(StoredItem it) {
                 ItemStack s = ItemStackCodec.decode(it, 1); // 还原成真实 ItemStack; 对应 mod 已移除则为 null
                 return s != null && NoppesUtilPlayer.compareItems(required, s, ignoreDamage, ignoreNBT);
