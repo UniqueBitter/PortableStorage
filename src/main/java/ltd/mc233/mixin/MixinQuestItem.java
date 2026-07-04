@@ -49,18 +49,39 @@ public abstract class MixinQuestItem {
         cir.setReturnValue(true); // 全部要求物 背包+仓库 都够 → 判为完成
     }
 
-    // 交任务扣物品后, 把背包没扣够的部分从仓库补扣(尊重 leaveItems)。
-    @Inject(method = "handleComplete", at = @At("RETURN"), remap = false)
-    private void ps$handleComplete(EntityPlayer player, CallbackInfo ci) {
-        if (leaveItems) return; // 不消耗物品的任务, 仓库也不动
+    // handleComplete 会在 CNPC 扣背包"之后"返回, 所以要在 HEAD(扣之前)先算好每个要求物"背包扣完还差多少",
+    // 存进 ThreadLocal, 到 RETURN 时再从仓库补扣这个差额。这样不会把背包已付的重复从仓库扣。
+    private static final ThreadLocal<long[]> PS_SHORTFALL = new ThreadLocal<long[]>();
+
+    @Inject(method = "handleComplete", at = @At("HEAD"), remap = false)
+    private void ps$handleCompleteHead(EntityPlayer player, CallbackInfo ci) {
+        if (leaveItems) { // 不消耗物品的任务, 仓库不动
+            PS_SHORTFALL.remove();
+            return;
+        }
         IInventory inv = this.items;
-        for (int i = 0; i < inv.getSizeInventory(); i++) {
+        int n = inv.getSizeInventory();
+        long[] shortfall = new long[n];
+        for (int i = 0; i < n; i++) {
             ItemStack req = inv.getStackInSlot(i);
             if (req == null) continue;
-            // handleComplete 已从背包扣走了能扣的部分; 差额从仓库补扣。
-            long inInv = StorageItemSource.countInInventory(player, req, ignoreDamage, ignoreNBT);
-            long remain = req.stackSize - Math.min(req.stackSize, inInv);
-            if (remain > 0) StorageItemSource.extractFromStorage(player, req, remain, ignoreDamage, ignoreNBT);
+            long inInv = StorageItemSource.countInInventory(player, req, ignoreDamage, ignoreNBT); // 扣之前的背包量
+            shortfall[i] = req.stackSize - Math.min(req.stackSize, inInv); // 背包出这么多, 剩下由仓库补
+        }
+        PS_SHORTFALL.set(shortfall);
+    }
+
+    @Inject(method = "handleComplete", at = @At("RETURN"), remap = false)
+    private void ps$handleCompleteReturn(EntityPlayer player, CallbackInfo ci) {
+        long[] shortfall = PS_SHORTFALL.get();
+        PS_SHORTFALL.remove();
+        if (shortfall == null) return; // leaveItems=true 或未捕获
+        IInventory inv = this.items; // items 是任务"要求物"模板, CNPC 扣的是玩家背包, 这里 HEAD→RETURN 不变
+        int n = Math.min(shortfall.length, inv.getSizeInventory());
+        for (int i = 0; i < n; i++) {
+            ItemStack req = inv.getStackInSlot(i);
+            if (req == null || shortfall[i] <= 0) continue;
+            StorageItemSource.extractFromStorage(player, req, shortfall[i], ignoreDamage, ignoreNBT);
         }
     }
 }
