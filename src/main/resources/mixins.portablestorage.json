@@ -1,5 +1,5 @@
 {
-  "required": true,
+  "required": false,
   "minVersion": "0.8.5-GTNH",
   "package": "ltd.mc233.mixin",
   "plugin": "ltd.mc233.mixin.PsMixinPlugin",
