@@ -77,6 +77,58 @@ public class StorageDao {
         return new java.util.HashSet<String>(keys);
     }
 
+    // 行谓词: 判定某仓库行是否算作"要找的物品"。生产环境由 CNPC 的 compareItems 支撑(见 StorageItemSource),
+    // 单测里用简单谓词验证聚合/扣减算术。
+    public interface RowMatch {
+
+        boolean test(StoredItem it);
+    }
+
+    // 合计该玩家所有 m.test 为真的行的 count。
+    public long countMatching(String player, RowMatch m) {
+        synchronized (db) {
+            long sum = 0;
+            try (java.sql.PreparedStatement ps = db.getConnection()
+                .prepareStatement("SELECT item,meta,nbt,nbt_hash,count,name,lore FROM entries WHERE player=?")) {
+                ps.setString(1, player);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        StoredItem it = read(rs);
+                        if (m.test(it)) sum += it.getCount();
+                    }
+                }
+            } catch (java.sql.SQLException e) {
+                throw new RuntimeException(e);
+            }
+            return sum;
+        }
+    }
+
+    // 从匹配行(按 id 升序)累计扣除, 最多 need; 归零行由 extract 删除。返回实际扣除量。
+    public long extractMatching(String player, long need, RowMatch m) {
+        if (need <= 0) return 0;
+        synchronized (db) {
+            java.util.List<Long> ids = new java.util.ArrayList<Long>();
+            try (java.sql.PreparedStatement ps = db.getConnection()
+                .prepareStatement("SELECT id,item,meta,nbt,nbt_hash,count,name,lore FROM entries WHERE player=? ORDER BY id")) {
+                ps.setString(1, player);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if (m.test(read(rs))) ids.add(rs.getLong("id"));
+                    }
+                }
+            } catch (java.sql.SQLException e) {
+                throw new RuntimeException(e);
+            }
+            long got = 0;
+            for (long id : ids) {
+                if (got >= need) break;
+                got += extract(player, id, need - got); // extract 内部 synchronized(db) 可重入
+            }
+            return got;
+        }
+    }
+
     // 该物品当前所在标签; 不存在则返回 -1。用于"存入时不覆盖已有分类"。
     public int getTab(String player, String item, int meta, String nbtHash) {
         return db.queryOne(
