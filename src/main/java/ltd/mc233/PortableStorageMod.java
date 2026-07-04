@@ -85,7 +85,7 @@ public class PortableStorageMod {
         String[] cls = { "ltd.mc233.core.MagnetRouter", "ltd.mc233.core.MagnetRouter$Split",
             "ltd.mc233.core.StoredItem", "ltd.mc233.core.PinInUtil", "ltd.mc233.item.ItemStackCodec",
             "ltd.mc233.db.StorageDb", "ltd.mc233.db.StorageDao", "ltd.mc233.StorageProvider",
-            "ltd.mc233.StorageService", "ltd.mc233.core.DeductPlan",
+            "ltd.mc233.StorageService",
             // 拼音库(PinIn): 必须在 init 阶段预加载, 否则在服务端 tick 内首次懒加载会触发 InvTweaks ASM 变换器 NPE → 崩溃。
             "me.towdium.pinin.PinIn" };
         for (String c : cls) {
