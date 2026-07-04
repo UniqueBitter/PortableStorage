@@ -7,6 +7,7 @@ import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.command.WrongUsageException;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChatComponentText;
 
 // /storage cap <get|add|set> [玩家] [数量] —— 查询/增加/设置随身仓库容量(能存多少种物品)。
@@ -32,6 +33,29 @@ public class StorageCapCommand extends CommandBase {
     @Override
     public int getRequiredPermissionLevel() {
         return 2;
+    }
+
+    // 按 Tab 时游戏会调这个方法要"候选词"。返回 null = 不补全(父类默认就是 null, 所以之前没补全)。
+    // 按现在打到第几个词(args.length), 给不同候选。getListOfStringsMatchingLastWord 会自动只留下"和已输入前缀匹配"的。
+    @SuppressWarnings("rawtypes")
+    @Override
+    public List addTabCompletionOptions(ICommandSender sender, String[] args) {
+        // 第 1 个词: 四个子命令
+        if (args.length == 1) {
+            return getListOfStringsMatchingLastWord(args, "cap", "lock", "unlock", "autovoucher");
+        }
+        // 第 2 个词: 看第 1 个词是什么, 给对应候选
+        if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("cap")) return getListOfStringsMatchingLastWord(args, "get", "add", "set");
+            if (args[0].equalsIgnoreCase("autovoucher")) return getListOfStringsMatchingLastWord(args, "on", "off");
+            if (args[0].equalsIgnoreCase("lock") || args[0].equalsIgnoreCase("unlock"))
+                return getListOfStringsMatchingLastWord(args, MinecraftServer.getServer().getAllUsernames()); // 补在线玩家名
+        }
+        // 第 3 个词: /storage cap <get|add|set> [玩家] → 补玩家名
+        if (args.length == 3 && args[0].equalsIgnoreCase("cap")) {
+            return getListOfStringsMatchingLastWord(args, MinecraftServer.getServer().getAllUsernames());
+        }
+        return null;
     }
 
     @Override
