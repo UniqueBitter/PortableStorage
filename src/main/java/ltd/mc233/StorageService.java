@@ -72,6 +72,21 @@ public final class StorageService {
         refresh(p);
     }
 
+    // 收纳模式(每玩家持久化, 随存档记住)。存 psStackMatch: true=只补充仓库已有种类; false(默认)=全部收纳。
+    public static boolean isStackMatch(net.minecraft.entity.player.EntityPlayer p) {
+        return p.getEntityData()
+            .getCompoundTag("PlayerPersisted")
+            .getBoolean("psStackMatch");
+    }
+
+    public static void toggleStackMatch(EntityPlayerMP p) {
+        NBTTagCompound data = p.getEntityData();
+        NBTTagCompound persist = data.getCompoundTag("PlayerPersisted");
+        if (!data.hasKey("PlayerPersisted")) data.setTag("PlayerPersisted", persist);
+        persist.setBoolean("psStackMatch", !persist.getBoolean("psStackMatch"));
+        refresh(p);
+    }
+
     // ===== 容量制 (随身仓库 2.0) =====
     // 容量 = 能存多少"种"物品, 持久化到 PlayerPersisted.psCapacity。
     // 首次/未设(<=0) → 初始化为 max(默认容量, 当前已用种类数), 保证老数据不被锁死。
@@ -82,11 +97,22 @@ public final class StorageService {
         if (!persist.getBoolean("psCapSet")) {
             int used = (int) StorageProvider.dao()
                 .countTypes(StorageProvider.keyFor(p));
-            int cap = Math.max(Config.defaultCapacity, used); // 老数据按现有种类数起步, 不锁死
+            int cap = Math.max(getDefaultCapacity(), used); // 老数据按现有种类数起步, 不锁死
             setCapacity(p, cap);
             return cap;
         }
         return Math.max(0, persist.getInteger("psCapacity"));
+    }
+
+    // 新玩家默认起始容量: 存在随存档的仓库 DB(settings 表), 由 /storage cap default 设 —— 不用配置文件。
+    public static int getDefaultCapacity() {
+        return StorageProvider.dao()
+            .getSettingInt("defaultCapacity", 0);
+    }
+
+    public static void setDefaultCapacity(int n) {
+        StorageProvider.dao()
+            .setSettingInt("defaultCapacity", Math.max(0, n));
     }
 
     public static void setCapacity(EntityPlayer p, int cap) {
@@ -270,6 +296,7 @@ public final class StorageService {
             names,
             nbts);
         pkt.curTab = tabId;
+        pkt.stackMatch = isStackMatch(p); // 让界面开箱即显示上次记住的收纳模式
         net.minecraft.nbt.NBTTagList list = tabList(p);
         pkt.tabIds = new int[list.tagCount()];
         pkt.tabNames = new String[list.tagCount()];
@@ -441,6 +468,9 @@ public final class StorageService {
                 break;
             case 5: // QUICK_STACK -> 仅补充仓库已有种类(泰拉瑞亚式)
                 quickStack(p, dao, uuid);
+                break;
+            case 6: // TOGGLE_STACK_MODE -> 切换收纳模式(全部 ↔ 仅补充已有), 持久化, 不执行收纳
+                toggleStackMatch(p);
                 break;
             default:
                 break;

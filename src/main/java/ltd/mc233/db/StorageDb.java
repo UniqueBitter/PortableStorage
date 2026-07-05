@@ -82,6 +82,8 @@ public class StorageDb {
                         + "name TEXT, lore TEXT,"
                         + "UNIQUE(player,item,meta,nbt_hash))");
                 s.execute("CREATE INDEX IF NOT EXISTS idx_player_name ON entries(player,name)");
+                // 全局键值设置(随存档): 目前存"新玩家默认起始容量"(defaultCapacity), 由 /storage cap default 设。
+                s.execute("CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)");
                 // 迁移: 老库没有 tab 列(物品归属的标签, 0=未分类), 平滑加上。幂等。
                 if (!hasColumn("entries", "tab")) {
                     s.execute("ALTER TABLE entries ADD COLUMN tab INTEGER NOT NULL DEFAULT 0");

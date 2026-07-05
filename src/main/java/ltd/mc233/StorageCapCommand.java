@@ -27,7 +27,7 @@ public class StorageCapCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/storage <cap <get|add|set> [玩家] [数量] | lock|unlock [玩家] | autovoucher [on|off]>";
+        return "/storage <cap <get|add|set|default> [玩家] [数量] | lock|unlock [玩家] | autovoucher [on|off]>";
     }
 
     @Override
@@ -46,7 +46,8 @@ public class StorageCapCommand extends CommandBase {
         }
         // 第 2 个词: 看第 1 个词是什么, 给对应候选
         if (args.length == 2) {
-            if (args[0].equalsIgnoreCase("cap")) return getListOfStringsMatchingLastWord(args, "get", "add", "set");
+            if (args[0].equalsIgnoreCase("cap"))
+                return getListOfStringsMatchingLastWord(args, "get", "add", "set", "default");
             if (args[0].equalsIgnoreCase("autovoucher")) return getListOfStringsMatchingLastWord(args, "on", "off");
             if (args[0].equalsIgnoreCase("lock") || args[0].equalsIgnoreCase("unlock"))
                 return getListOfStringsMatchingLastWord(
@@ -97,6 +98,19 @@ public class StorageCapCommand extends CommandBase {
             int cap = StorageService.getCapacity(t);
             sender.addChatMessage(
                 new ChatComponentText("§e" + t.getCommandSenderName() + " 仓库容量: " + used + "/" + cap + " 种"));
+            return;
+        }
+
+        // /storage cap default [数量] —— 查询/设置"新玩家默认起始容量"(存进本存档的仓库 DB, 不用配置文件)。
+        if (sub.equals("default")) {
+            if (args.length >= 3) {
+                int n = Math.max(0, parseInt(sender, args[2]));
+                StorageService.setDefaultCapacity(n);
+                sender.addChatMessage(new ChatComponentText("§a新玩家默认起始容量已设为 §e" + n + " §a种(随存档保存)"));
+            } else {
+                sender.addChatMessage(
+                    new ChatComponentText("§e当前新玩家默认起始容量: §a" + StorageService.getDefaultCapacity() + " §e种"));
+            }
             return;
         }
 

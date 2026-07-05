@@ -202,6 +202,7 @@ public class GuiPortableStorage extends GuiContainer {
             this.nbts = p.nbts;
             this.lockMask = p.lockMask;
             this.restockOn = p.restock;
+            this.stackMode = p.stackMatch; // 收纳模式由服务端记住, 开箱即恢复上次的选择
             this.capUsed = p.capUsed;
             this.capTotal = p.capTotal;
             this.curTab = p.curTab;
@@ -289,8 +290,7 @@ public class GuiPortableStorage extends GuiContainer {
         if (handleTabColumnClick(mx, my, btn)) return;
         // 右键收纳按钮: 切换收纳模式(全部 ↔ 仅补充已有), 不执行。
         if (btn == 1 && over(this.stackBtn, mx, my)) {
-            this.stackMode = !this.stackMode;
-            updateButtons();
+            sendGridAction(6, 0L); // 切换收纳模式(服务端持久化, 回包会刷新按钮显示)
             playClick();
             return;
         }

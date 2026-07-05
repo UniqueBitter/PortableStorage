@@ -60,6 +60,24 @@ public class StorageDao {
             0L);
     }
 
+    // 全局键值设置(随存档, settings 表)。用于"新玩家默认起始容量"等全局项(不放配置文件)。
+    public int getSettingInt(String key, int def) {
+        return db.queryOne("SELECT v FROM settings WHERE k=?", ps -> ps.setString(1, key), rs -> {
+            try {
+                return Integer.parseInt(rs.getString(1));
+            } catch (Exception e) {
+                return def;
+            }
+        }, def);
+    }
+
+    public void setSettingInt(String key, int val) {
+        db.update("INSERT INTO settings(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", ps -> {
+            ps.setString(1, key);
+            ps.setString(2, Integer.toString(val));
+        });
+    }
+
     public long countOf(String player, String item, int meta, String nbtHash) {
         return db.queryOne(
             "SELECT count FROM entries WHERE player=? AND item=? AND meta=? AND nbt_hash=?",

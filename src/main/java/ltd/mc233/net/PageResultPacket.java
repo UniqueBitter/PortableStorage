@@ -16,6 +16,7 @@ public class PageResultPacket implements IMessage {
     public int capUsed;
     public int capTotal;
     public int curTab; // 当前视图标签 (-1=全部, 0=未分类, >=1=自定义)
+    public boolean stackMatch; // 收纳模式: true=仅补充仓库已有种类, false=全部收纳(服务端记住)
     public int[] tabIds; // 自定义标签 id (>=1)
     public String[] tabNames;
     public long[] ids;
@@ -55,6 +56,7 @@ public class PageResultPacket implements IMessage {
         buf.writeInt(capUsed);
         buf.writeInt(capTotal);
         buf.writeInt(curTab);
+        buf.writeBoolean(stackMatch);
         int tn = tabIds == null ? 0 : tabIds.length;
         buf.writeInt(tn);
         for (int i = 0; i < tn; i++) {
@@ -88,6 +90,7 @@ public class PageResultPacket implements IMessage {
         capUsed = buf.readInt();
         capTotal = buf.readInt();
         curTab = buf.readInt();
+        stackMatch = buf.readBoolean();
         int tn = buf.readInt();
         tabIds = new int[tn];
         tabNames = new String[tn];

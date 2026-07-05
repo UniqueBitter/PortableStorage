@@ -12,9 +12,6 @@ public final class Config {
 
     public static int magnetRadius = 32;
     public static boolean autoRestock = true;
-    // 随身仓库起始容量(能存多少"种"物品)。默认 0: 新玩家从零开始, 靠任务/扩容券解锁。
-    // 首次为玩家初始化时取 max(本值, 其当前种类数), 所以已有存档的老数据不会被锁死(按现有种类数起步)。
-    public static int defaultCapacity = 0;
     // 正常途径(扩容券)能把容量提升到的上限。指令 /storage cap 可突破此上限。
     public static int maxCapacity = 999;
     // 无限容量(通用大背包版): 不限制能存多少"种"物品, 界面也不显示容量上限。
@@ -42,8 +39,6 @@ public final class Config {
         c.load();
         magnetRadius = clampRadius(c.getInt("magnetRadius", "magnet", 32, 1, 128, "磁铁吸取半径(格), 1-128"));
         autoRestock = c.getBoolean("autoRestock", "general", true, "快捷栏物品用尽时, 自动从随身仓库补充同种物品(打开仓库界面时不触发)");
-        defaultCapacity = c
-            .getInt("defaultCapacity", "storage", 0, 0, 100000, "随身仓库起始容量(能存多少种物品), 默认0=从零解锁; 老存档会取 max(本值, 现有种类数)");
         maxCapacity = c.getInt("maxCapacity", "storage", 999, 1, 100000, "扩容券等正常途径能提升到的容量上限; 指令可突破");
         unlimitedStorage = c.getBoolean(
             "unlimitedStorage",
