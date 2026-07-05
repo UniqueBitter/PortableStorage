@@ -5,5 +5,5 @@
   "refmap": "mixins.portablestorage.refmap.json",
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
-  "mixins": ["MixinQuestItem", "MixinNoppesUtilPlayer"]
+  "mixins": ["MixinQuestItem", "MixinNoppesUtilPlayer", "MixinServerEventsHandler"]
 }
