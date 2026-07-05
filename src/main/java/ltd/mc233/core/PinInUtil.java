@@ -2,8 +2,7 @@ package ltd.mc233.core;
 
 import me.towdium.pinin.PinIn;
 
-// 拼音模糊匹配封装(基于 Towdium 的 PinIn, 即 NEC/NEI 的同款引擎)。
-// 直接在物品名/词条上做匹配, 无需预先生成拼音列。search 支持: 中文、全拼、首字母缩写、混合。
+// 拼音模糊匹配封装(基于 Towdium 的 PinIn, 即 NEC/NEI 的同款引擎): 直接在物品名/词条上匹配, 无需预先生成拼音列, 支持中文/全拼/首字母缩写/混合。
 public final class PinInUtil {
 
     private PinInUtil() {}

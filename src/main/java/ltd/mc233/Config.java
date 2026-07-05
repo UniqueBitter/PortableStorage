@@ -14,8 +14,7 @@ public final class Config {
     public static boolean autoRestock = true;
     // 正常途径(扩容券)能把容量提升到的上限。指令 /storage cap 可突破此上限。
     public static int maxCapacity = 999;
-    // 无限容量(通用大背包版): 不限制能存多少"种"物品, 界面也不显示容量上限。
-    // 默认关(false)= RPG 容量门槛(逐步解锁, 本 RPG 整合包用这个); 想当通用大背包就在 config 里设为 true。
+    // 无限容量(通用大背包): 不限存多少种物品也不显示上限。默认 false=RPG 容量门槛(逐步解锁, 本整合包用这个); true=通用大背包。
     public static boolean unlimitedStorage = false;
     // 栏位拓展器进入背包时是否自动使用(默认开)。关闭则改为右键手动使用。
     public static boolean autoConsumeVoucher = true;

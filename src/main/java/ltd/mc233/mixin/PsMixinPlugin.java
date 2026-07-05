@@ -24,9 +24,7 @@ public class PsMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-        // 直接放行, 不做 CNPC 检测: 我们的 mixin 只钩 noppes.* 类, 没装 CNPC 时这些类根本不加载, 靠 @Pseudo 本 mixin
-        // 就不会应用(也不报错)。而各种检测都不靠谱: Class.forName 会提前把 noppes 类污染→崩; getResource 这阶段查不到;
-        // Loader.isModLoaded 此时也不可靠。所以交给 @Pseudo 兜底最稳。
+        // 直接放行, 不做 CNPC 检测: mixin 只钩 noppes.* 类, 没装 CNPC 时它们不加载, 靠 @Pseudo 自动不应用。各种检测都不靠谱(Class.forName 会污染类→崩、getResource 查不到、Loader 此时不可靠), 交给 @Pseudo 兜底最稳。
         return true;
     }
 

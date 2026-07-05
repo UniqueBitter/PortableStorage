@@ -49,8 +49,7 @@ public class ContainerPortableStorage extends Container {
         if (!p.worldObj.isRemote && p instanceof EntityPlayerMP) StorageService.syncLockedSlots((EntityPlayerMP) p);
     }
 
-    // 玩家在背包里 Shift+左键某个物品时会调到这里 —— 我们把它存进仓库。
-    // (从仓库往外取不走这里, 那是点仓库网格触发的自定义包。)
+    // 玩家在背包里 Shift+左键某物品时调到这里 —— 我们把它存进仓库。(从仓库往外取不走这里, 那是点仓库网格触发的自定义包。)
     @Override
     public ItemStack transferStackInSlot(EntityPlayer p, int index) {
         Slot slot = (Slot) this.inventorySlots.get(index);
@@ -66,8 +65,7 @@ public class ContainerPortableStorage extends Container {
             }
             slot.putStack(null); // 存成功了, 清空这个背包格
             slot.onSlotChanged();
-            // 这次存入是我们自定义的, 客户端并不知道, 屏幕上会残留一个"假物品"(幽灵)。
-            // 所以主动发个包告诉客户端"这格已经空了", 再整体同步一遍, 把幽灵清掉。
+            // 这次存入是自定义的, 客户端不知道会残留"假物品"(幽灵); 主动发包告诉客户端"这格空了"再整体同步一遍, 把幽灵清掉。
             pmp.playerNetServerHandler
                 .sendPacket(new net.minecraft.network.play.server.S2FPacketSetSlot(this.windowId, index, null));
             this.detectAndSendChanges();

@@ -53,9 +53,7 @@ public class MagnetManager {
 
         for (EntityItem ei : list) {
             if (ei == null || ei.isDead) continue;
-            // 跳过"永久不可拾取"的实体: 地图/RPG 作者常用 setInfinitePickupDelay()
-            // 把 delayBeforeCanPickup 设为 32767(无限, 永不递减)来做展示/任务用的不可捡起物。
-            // 这类不吸; 但普通刚掉落物(只是临时延迟)仍即时吸取。
+            // 跳过永久不可拾取物(delayBeforeCanPickup=32767, 常用作展示/任务物); 普通刚掉落物只是临时延迟, 仍即时吸取。
             if (ei.delayBeforeCanPickup == 32767) continue;
             // 同样跳过被标记为不会自然消失的"持久化"展示物(部分作者用 PersistenceRequired/Invulnerable)。
             if (ei.isEntityInvulnerable()) continue;

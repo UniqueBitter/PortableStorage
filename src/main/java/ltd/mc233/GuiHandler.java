@@ -19,8 +19,7 @@ public class GuiHandler implements IGuiHandler {
     // 界面编号。这个 mod 就一个界面, 固定用 0。
     public static final int GUI_STORAGE = 0;
 
-    // 服务端要的对象: 仓库容器, 只管背包那 36 格的逻辑。
-    // (仓库那一片物品格子不在这里 —— 它是客户端自己画的, 在 GuiPortableStorage 里。)
+    // 服务端要的对象: 仓库容器, 只管背包那 36 格逻辑(仓库那片物品格是客户端在 GuiPortableStorage 里自己画的)。
     @Override
     public Object getServerGuiElement(int id, EntityPlayer player, World world, int x, int y, int z) {
         return new ContainerPortableStorage(player);

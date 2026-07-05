@@ -13,8 +13,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
-// 把一个带 @Cmd 的方法适配成 Forge 的 CommandBase。反射调用, 但只在 serverStarting 注册时反射一次方法,
-// 不做类路径扫描 —— 避免 1.7.10 下 InvTweaks ASM 懒加载崩溃。
+// 把带 @Cmd 的方法适配成 Forge 的 CommandBase。只在 serverStarting 注册时反射一次, 不扫类路径 —— 避免 1.7.10 下 InvTweaks ASM 懒加载崩溃。
 public class AnnotatedCommand extends CommandBase {
 
     private final Object holder;

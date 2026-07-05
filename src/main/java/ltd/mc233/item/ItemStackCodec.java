@@ -44,8 +44,7 @@ public final class ItemStackCodec {
         if (cleanName == null) cleanName = "";
         String name = cleanName.toLowerCase();
 
-        // 搜索索引用"完整提示框文字"(含附魔/属性/史诗/任务物品等), 而不仅是 display.Lore。
-        // getTooltip 在服务端通常可用; 万一某 mod 的提示访问客户端字段崩了, 退回只读 display.Lore。
+        // 搜索索引用"完整提示框文字"(含附魔/属性/史诗/任务物品等)而不仅 display.Lore; getTooltip 服务端通常可用, 万一某 mod 提示访问客户端字段崩了就退回只读 display.Lore。
         String loreClean;
         try {
             List<?> tip = st.getTooltip(player, false);

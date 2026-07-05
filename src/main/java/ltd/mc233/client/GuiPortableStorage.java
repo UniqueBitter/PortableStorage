@@ -65,9 +65,9 @@ public class GuiPortableStorage extends GuiContainer {
     private boolean restockOn = true;
     private int capUsed = 0;
     private int capTotal = 0;
-    // 当前标签由服务端持久化(psLastTab)统一记忆; 客户端不自存, 开界面时发 -2 向服务端要记忆值, 收到即回填。
+    // 当前标签由服务端(psLastTab)记忆; 客户端不自存, 开界面发 -2 要记忆值, 收到回填。
     private int curTab = -2; // -2=向服务端要记忆的标签; -1=全部, 0=未分类, >=1=自定义
-    // "全部"格的子模式偏好(纯客户端 UI 状态): -1=全部, 0=未分类。右键切换; 访问其他标签后再看"全部"格仍保留此模式(会话内)。
+    // "全部"格的子模式偏好(纯客户端): -1=全部, 0=未分类。右键切换, 会话内保留。
     private static int allMode = -1;
     private int[] tabIds = new int[0];
     private String[] tabNames = new String[0];
@@ -79,8 +79,7 @@ public class GuiPortableStorage extends GuiContainer {
     private int renameX, renameY;
     private static final int RENAME_W = 140, RENAME_H = 20;
     private IconButton stackBtn;
-    // 收纳模式: false=全部收纳(非锁定的都收), true=仅补充仓库已有种类(泰拉瑞亚式, 不收快捷栏)。右键按钮切换。
-    // 会话内保留(static): 关掉界面再开仍是上次选的模式。
+    // 收纳模式: false=全部收纳(非锁定的都收), true=仅补充仓库已有种类(泰拉式, 不收快捷栏)。右键切换; static 会话内保留。
     private static boolean stackMode = false;
     private IconButton sortByBtn;
     private IconButton dirBtn;
@@ -314,8 +313,7 @@ public class GuiPortableStorage extends GuiContainer {
         if (idx < 0) return;
         ItemStack held = this.mc.thePlayer.inventory.getItemStack();
         boolean onItem = idx < this.ids.length;
-        // 右键点仓库物品: 始终"取一个到光标"。可连续右键不断累加同种(手上已拿同种则 +1, 异种则不动),
-        // 不再因为手上有东西就改成"存回去", 解决"取一个放一个"的来回切换。
+        // 右键点仓库物品: 始终"取一个到光标"(可连续右键累加同种, 异种不动), 不因手上有东西改成存回, 避免来回切换。
         if (btn == 1 && onItem) {
             sendGridAction(1, this.ids[idx]);
             return;
@@ -539,8 +537,7 @@ public class GuiPortableStorage extends GuiContainer {
     @Override
     protected void drawGuiContainerForegroundLayer(int mx, int my) {
         this.fontRendererObj.drawString("随身仓库", 8, 6, 0xFFFFFFFF); // 纯白, 不加阴影(阴影会发灰)
-        // 容量计数在仓库格与背包之间的空隙: 无限=显示已存种类; 有限=显示还能存多少。小一号白字, 满了标红。
-        // capTotal < 0 = 无限容量模式(哨兵), 显示"无限"; 否则显示剩余可存种类数。
+        // 容量计数(仓库格与背包之间): capTotal<0=无限模式显示"无限", 否则显示剩余可存种类数。小一号白字, 满了标红。
         String cap = this.capTotal < 0 ? "还可存 无限" : ("还可存 " + Math.max(0, this.capTotal - this.capUsed) + " 种");
         int capColor = (this.capTotal >= 0 && this.capUsed >= this.capTotal) ? 0xFFFF5555 : 0xFFFFFFFF;
         GL11.glPushMatrix();
@@ -573,8 +570,7 @@ public class GuiPortableStorage extends GuiContainer {
             if ((this.lockMask & (1L << s.getSlotIndex())) != 0) drawLockMarker(s.xDisplayPosition, s.yDisplayPosition);
         }
         GL11.glEnable(GL11.GL_DEPTH_TEST);
-        // drawRect 会把 GL 颜色留在金色。原版随后(本方法返回后)渲染"鼠标光标上拿着的物品"时不会重置颜色,
-        // 于是该物品图标会继承这个金色+alpha, 看起来发虚/透明。这里还原成不透明白色, 避免污染后续渲染。
+        // drawRect 把 GL 颜色留成金色, 随后原版渲染"光标上拿的物品"时不重置颜色 → 图标会发虚/透明。这里还原成不透明白, 避免污染后续渲染。
         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
         // 仓库格悬停 tooltip 移到 drawScreen 末尾画(见 drawHoveredStorageTooltip), 以盖在标签列等 UI 之上。
     }
@@ -658,8 +654,7 @@ public class GuiPortableStorage extends GuiContainer {
 
     private static final int MAX_TABS = 15;
 
-    // 显示顺序的标签 id: [全部(-1), 自定义...]。未分类(0)不占标签位, 用"全部"上右键切换查看。
-    // 每帧多处调用, 返回缓存(收包时由 rebuildTabOrder 重建), 不再每次分配。
+    // 显示顺序的标签 id: [全部(-1), 自定义...]; 未分类(0)不占位, 在"全部"上右键切换查看。每帧多处调用, 返回缓存(收包时重建), 不每次分配。
     private int[] tabOrder() {
         return this.tabOrderCache;
     }

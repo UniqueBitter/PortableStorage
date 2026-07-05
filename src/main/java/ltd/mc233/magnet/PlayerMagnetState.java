@@ -10,8 +10,7 @@ public final class PlayerMagnetState {
 
     private PlayerMagnetState() {}
 
-    // get 在服务端主线程(磁铁tick)调用, set 在 netty handler 线程(切档)调用,
-    // 两者都读写玩家 PlayerPersisted NBT(底层 HashMap), 用同一把锁串行化, 避免并发结构性修改。
+    // get 走服务端主线程(磁铁tick)、set 走 netty handler 线程(切档), 都读写玩家 PlayerPersisted NBT(底层 HashMap), 用同一把锁串行化避免并发改。
     public static int get(EntityPlayer p) {
         synchronized (PlayerMagnetState.class) {
             return tag(p).getInteger(KEY);

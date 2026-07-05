@@ -10,8 +10,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChatComponentText;
 
-// /storage cap <get|add|set> [玩家] [数量] —— 查询/增加/设置随身仓库容量(能存多少种物品)。
-// 给任务奖励 / CustomNPCs 对话调用, 实现"逐步解锁/扩容"。别名 /psstorage。
+// /storage cap <get|add|set> [玩家] [数量] —— 查/加/设随身仓库容量(能存多少种物品); 给任务奖励/CNPC 对话调用实现逐步解锁扩容。别名 /psstorage。
 public class StorageCapCommand extends CommandBase {
 
     @Override
@@ -35,8 +34,7 @@ public class StorageCapCommand extends CommandBase {
         return 2;
     }
 
-    // 按 Tab 时游戏会调这个方法要"候选词"。返回 null = 不补全(父类默认就是 null, 所以之前没补全)。
-    // 按现在打到第几个词(args.length), 给不同候选。getListOfStringsMatchingLastWord 会自动只留下"和已输入前缀匹配"的。
+    // 按 Tab 给候选词, 返回 null=不补全。按打到第几个词(args.length)给不同候选, getListOfStringsMatchingLastWord 自动只留和前缀匹配的。
     @SuppressWarnings("rawtypes")
     @Override
     public List addTabCompletionOptions(ICommandSender sender, String[] args) {

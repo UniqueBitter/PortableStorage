@@ -14,8 +14,7 @@ import ltd.mc233.db.StorageDb;
 public class StorageProvider {
 
     private static final Map<String, StorageDb> DBS = new HashMap<String, StorageDb>();
-    private static final Map<String, StorageDao> DAOS = new HashMap<String, StorageDao>(); // 每个 db 复用一个无状态 DAO, 避免热路径反复
-                                                                                           // new
+    private static final Map<String, StorageDao> DAOS = new HashMap<String, StorageDao>(); // 每个 db 复用一个无状态 DAO, 免得热路径反复 new
 
     // 仓库按玩家 UUID 区分(每个玩家自己的随身仓库)。
     public static String keyFor(net.minecraft.entity.player.EntityPlayer p) {

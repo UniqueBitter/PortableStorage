@@ -63,10 +63,7 @@ public class StorageDb {
 
     public StorageDb(File dbFile) {
         try {
-            // 用类字面量取驱动名: shade 重定位会把 org.sqlite.JDBC 改名到
-            // ltd.mc233.shadow.org.sqlite.JDBC, 类引用会被一起改写而字符串字面量不会。
-            // getName() 在运行期返回(可能已重定位的)真实类名, 再 forName 触发其静态块自注册驱动。
-            // dev/单元测试下未重定位, 同样得到 org.sqlite.JDBC, 行为一致。
+            // 用类字面量取驱动名: shade 重定位只改类引用不改字符串, getName() 拿到运行期真实类名再 forName 触发静态块自注册驱动; dev/单测下未重定位, 行为一致。
             Class.forName(org.sqlite.JDBC.class.getName());
             if (dbFile.getParentFile() != null) dbFile.getParentFile()
                 .mkdirs();

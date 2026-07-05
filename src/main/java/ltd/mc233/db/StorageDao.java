@@ -95,8 +95,7 @@ public class StorageDao {
         return new java.util.HashSet<String>(keys);
     }
 
-    // 行谓词: 判定某仓库行是否算作"要找的物品"。生产环境由 CNPC 的 compareItems 支撑(见 StorageItemSource),
-    // 单测里用简单谓词验证聚合/扣减算术。
+    // 行谓词: 判定某仓库行是否算作"要找的物品"。生产环境由 CNPC 的 compareItems 支撑(见 StorageItemSource), 单测里用简单谓词验证聚合/扣减算术。
     public interface RowMatch {
 
         boolean test(StoredItem it);
@@ -394,8 +393,7 @@ public class StorageDao {
         });
     }
 
-    // 取该玩家(+标签)全部条目, 按 SQL 排序; 关键词用 PinIn 在 Java 侧过滤; 再取 [offset, offset+limit) 窗口。
-    // total = 匹配到的条目总数。单玩家条目量不大(几十~几百), 一次性载入无碍。
+    // 取该玩家(+标签)全部条目, 按 SQL 排序; 关键词用 PinIn 在 Java 侧过滤; 再取 [offset, offset+limit) 窗口; total = 匹配到的条目总数。单玩家条目量不大(几十~几百), 一次性载入无碍。
     public PageResult queryWindowWithIds(String player, String keyword, int offset, int limit, int sort, int tabId) {
         synchronized (db) {
             List<StoredItem> outItems = new java.util.ArrayList<StoredItem>();

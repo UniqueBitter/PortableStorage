@@ -24,8 +24,7 @@ public final class StorageService {
 
     private StorageService() {}
 
-    // 排序偏好持久化到玩家 PlayerPersisted NBT(随存档/重启保留)。
-    // sort 编码: by = sort/2 (0名字 1数量 2类型 3时间), 降序 = (sort%2==1)。合法范围 0..7。
+    // 排序偏好持久化到 PlayerPersisted NBT(随存档保留)。sort 编码: by=sort/2 (0名字 1数量 2类型 3时间), 降序=(sort%2==1), 合法 0..7。
     private static int getSortPref(EntityPlayerMP p) {
         NBTTagCompound persist = p.getEntityData()
             .getCompoundTag("PlayerPersisted");
@@ -88,8 +87,7 @@ public final class StorageService {
     }
 
     // ===== 容量制 (随身仓库 2.0) =====
-    // 容量 = 能存多少"种"物品, 持久化到 PlayerPersisted.psCapacity。
-    // 首次/未设(<=0) → 初始化为 max(默认容量, 当前已用种类数), 保证老数据不被锁死。
+    // 容量=能存多少种物品, 持久化到 PlayerPersisted.psCapacity; 首次/未设时初始化为 max(默认容量, 当前已用种类数), 保证老数据不被锁死。
     public static int getCapacity(EntityPlayer p) {
         NBTTagCompound persist = p.getEntityData()
             .getCompoundTag("PlayerPersisted");
@@ -157,8 +155,7 @@ public final class StorageService {
         return getCapacity(p) - before;
     }
 
-    // 统一的存入入口: it 含数量。已存在的种类 → 直接累加(永远允许); 新种类 → 需 used<capacity, 否则拒绝。
-    // 返回 true=已存入; false=容量已满(新种类放不下)。调用方负责在 false 时把物品留住、给反馈。
+    // 统一存入入口(it 含数量): 已有种类直接累加(永远允许), 新种类需 used<capacity 否则拒。返回 true=已存入; false=满(新种类放不下, 调用方负责留住物品并反馈)。
     public static boolean deposit(EntityPlayer p, StorageDao dao, String uuid, StoredItem it) {
         if (!Config.unlimitedStorage) { // 无限容量版跳过种类上限检查
             boolean exists = dao.entryId(uuid, it.getItem(), it.getMeta(), it.getNbtHash()) >= 0;
@@ -176,10 +173,7 @@ public final class StorageService {
         return true;
     }
 
-    // 锁定格自动同步(打开/关闭随身仓库时各调一次):
-    // 1) 背包"非锁定格"里与锁定物品同种的 → 全部存入仓库(该物品只保留在锁定格 + 仓库);
-    // 2) 每个非空锁定格 → 从仓库补满到该物品的满堆叠。
-    // 空的锁定格不处理(无从得知该放什么); 终端不动。
+    // 锁定格自动同步(开/关仓库各调一次): 1)背包非锁定格里与锁定物同种的全存入仓库; 2)每个非空锁定格从仓库补满到满堆叠。空锁定格和终端不动。
     public static void syncLockedSlots(EntityPlayerMP p) {
         long locked = getLockedSlots(p);
         if (locked == 0) return;
@@ -553,8 +547,7 @@ public final class StorageService {
         long locked = getLockedSlots(p);
         boolean full = false;
         int moved = 0;
-        // 逐个存入(而非批量), 以便容量随新种类逐件递增地判断; 放不下的留在背包不丢。
-        // 用 deposit(非 depositToCurrentTab): 已归类的合并时保留原标签(各回各家), 新种类进未分类, 不硬塞当前标签。
+        // 逐个存入(非批量), 让容量随新种类逐件判断, 放不下的留在背包不丢。用 deposit 而非 depositToCurrentTab: 已归类的合并保留原标签, 新种类进未分类。
         for (int i = 0; i < p.inventory.mainInventory.length; i++) {
             ItemStack st = p.inventory.mainInventory[i];
             if (st == null) continue;
@@ -579,8 +572,7 @@ public final class StorageService {
         refresh(p); // 界面开着则刷新(界面动作路径由 sendPage 负责刷新, 这里给按键路径补一次)
     }
 
-    // 只把背包(9-35, 不含快捷栏)里"仓库已有种类"的物品存入(补充已有堆叠);
-    // 仓库没有的种类、快捷栏、锁定格、终端都不动。不占新容量, 合并进原有行(保持其所在标签)。
+    // 只把背包(9-35, 不含快捷栏)里仓库已有种类的物品存入补充; 仓库没有的种类、快捷栏、锁定格、终端都不动。不占新容量, 合并进原有行(保持标签)。
     private static void quickStack(EntityPlayerMP p, StorageDao dao, String uuid) {
         long locked = getLockedSlots(p);
         ItemStack[] main = p.inventory.mainInventory;

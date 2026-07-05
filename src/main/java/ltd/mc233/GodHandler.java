@@ -36,8 +36,7 @@ public class GodHandler {
         }
     }
 
-    // god 攻击者 → 秒杀: 把最终伤害设为目标生命上限+1(此时已过护甲/抗性计算, 直接扣血 → 必死)。
-    // 近战和自己射出的箭都算(间接伤害源 getEntity() 返回射手)。
+    // god 攻击者秒杀: 伤害设为目标血上限+1(已过护甲/抗性, 直接扣血必死); 近战和自己射出的箭都算。
     @SubscribeEvent
     public void onHurt(LivingHurtEvent e) {
         if (e.source == null || e.entityLiving == null) return;

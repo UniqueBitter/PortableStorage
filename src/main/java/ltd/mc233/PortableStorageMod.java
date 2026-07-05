@@ -79,8 +79,7 @@ public class PortableStorageMod {
         proxy.init();
     }
 
-    // 在 init(非玩家tick上下文)里预加载磁铁/补充tick会用到的类。否则它们在玩家tick里首次懒加载时,
-    // 会触发 InventoryTweaks 的 ASM ContainerTransformer 在该上下文 NPE → NoClassDefFoundError 崩服。
+    // 在 init(非玩家tick上下文)预加载磁铁/补充tick要用的类; 否则玩家tick里首次懒加载会触发 InventoryTweaks 的 ASM 变换器 NPE → NoClassDefFoundError 崩服。
     private void preloadTickClasses() {
         String[] cls = { "ltd.mc233.core.MagnetRouter", "ltd.mc233.core.MagnetRouter$Split",
             "ltd.mc233.core.StoredItem", "ltd.mc233.core.PinInUtil", "ltd.mc233.item.ItemStackCodec",

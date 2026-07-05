@@ -49,8 +49,7 @@ public abstract class MixinQuestItem {
         cir.setReturnValue(true); // 全部要求物 背包+仓库 都够 → 判为完成
     }
 
-    // handleComplete 会在 CNPC 扣背包"之后"返回, 所以要在 HEAD(扣之前)先算好每个要求物"背包扣完还差多少",
-    // 存进 ThreadLocal, 到 RETURN 时再从仓库补扣这个差额。这样不会把背包已付的重复从仓库扣。
+    // HEAD 先算好每个要求物"背包扣完还差多少"存进 ThreadLocal, RETURN 时再从仓库补扣差额, 避免把背包已付的重复扣。
     private static final ThreadLocal<long[]> PS_SHORTFALL = new ThreadLocal<long[]>();
 
     @Inject(method = "handleComplete", at = @At("HEAD"), remap = false)
