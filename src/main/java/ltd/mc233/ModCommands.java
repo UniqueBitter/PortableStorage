@@ -156,30 +156,19 @@ public class ModCommands {
     }
 
     // 纯客户端显示, 无需玩家/高权限 → 用 ICommandSender 签名(非 playerOnly), level 0。
-    @Cmd(
-        name = "glow",
-        aliases = { "itemglow", "loot" },
-        level = 0,
-        usage = "/glow [半径|debug] - 附近掉落物发光",
-        tab = { "debug" })
+    @Cmd(name = "glow", aliases = { "itemglow", "loot" }, level = 0, usage = "/glow [半径] - 附近掉落物上方显示名字(默认开, 无参切换开关)")
     public void glow(ICommandSender s, String[] a) {
         if (a.length >= 1) {
-            if (a[0].equalsIgnoreCase("debug")) {
-                ItemGlowState.debug = !ItemGlowState.debug;
-                ItemGlowState.enabled = true;
-                msg(s, ItemGlowState.debug ? "§b发光调试: 开(直接显示剪影缓冲)" : "§b发光调试: 关(恢复边缘检测描边)");
-                return;
-            }
             try {
                 ItemGlowState.radius = Math.max(4, Math.min(128, Integer.parseInt(a[0])));
                 ItemGlowState.enabled = true;
             } catch (NumberFormatException e) {
-                msg(s, "§c用法: /glow [半径数字|debug]");
+                msg(s, "§c用法: /glow [半径数字]");
                 return;
             }
         } else {
             ItemGlowState.enabled = !ItemGlowState.enabled;
         }
-        msg(s, ItemGlowState.enabled ? "§a掉落物发光: 开 §7(半径 " + ItemGlowState.radius + " 格)" : "§e掉落物发光: 关");
+        msg(s, ItemGlowState.enabled ? "§a掉落物名字: 开 §7(半径 " + ItemGlowState.radius + " 格)" : "§e掉落物名字: 关");
     }
 }

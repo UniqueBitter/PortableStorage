@@ -6,8 +6,6 @@ public final class ItemGlowState {
 
     private ItemGlowState() {}
 
-    public static volatile boolean enabled = false;
+    public static volatile boolean enabled = true; // 默认开; /glow 可关
     public static volatile int radius = 24;
-    // 调试: 直接把剪影 FBO 糊到屏幕, 用于判断是"捕获失败"还是"着色器失败"。
-    public static volatile boolean debug = false;
 }
